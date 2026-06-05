@@ -12,7 +12,7 @@ import {
   type ScopedThreadRef,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import { DEFAULT_UNIFIED_SETTINGS, type NotificationLevel } from "@t3tools/contracts/settings";
 import { createModelSelection } from "@t3tools/shared/model";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
@@ -30,6 +30,7 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
+import { useNotification } from "../../hooks/useNotification";
 import { useTheme } from "../../hooks/useTheme";
 import { useSettings, useUpdateSettings } from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
@@ -49,6 +50,7 @@ import { ensureLocalApi, readLocalApi } from "../../localApi";
 import { useShallow } from "zustand/react/shallow";
 import { selectProjectsAcrossEnvironments, useStore } from "../../store";
 import { useArchivedThreadSnapshots } from "../../lib/archivedThreadsState";
+import { showNativeNotification } from "../../lib/nativeNotifications";
 import { formatRelativeTime, formatRelativeTimeLabel } from "../../timestampFormat";
 import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
@@ -100,6 +102,33 @@ const TIMESTAMP_FORMAT_LABELS = {
   "12-hour": "12-hour",
   "24-hour": "24-hour",
 } as const;
+
+const NOTIFICATION_LEVEL_OPTIONS = [
+  {
+    value: "off",
+    label: "Off",
+    description: "Disable OS notifications.",
+  },
+  {
+    value: "important",
+    label: "Important",
+    description: "Approval/input required and failed tasks.",
+  },
+  {
+    value: "normal",
+    label: "Normal",
+    description: "Important plus completed tasks.",
+  },
+  {
+    value: "verbose",
+    label: "Verbose",
+    description: "Normal plus task activity updates.",
+  },
+] as const satisfies ReadonlyArray<{
+  value: NotificationLevel;
+  label: string;
+  description: string;
+}>;
 
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
 
@@ -395,6 +424,9 @@ export function useSettingsRestore(onRestored?: () => void) {
       ...(settings.timestampFormat !== DEFAULT_UNIFIED_SETTINGS.timestampFormat
         ? ["Time format"]
         : []),
+      ...(settings.notificationLevel !== DEFAULT_UNIFIED_SETTINGS.notificationLevel
+        ? ["Notifications"]
+        : []),
       ...(settings.sidebarThreadPreviewCount !== DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount
         ? ["Visible threads"]
         : []),
@@ -439,6 +471,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.diffWordWrap,
       settings.automaticGitFetchInterval,
       settings.enableAssistantStreaming,
+      settings.notificationLevel,
       settings.sidebarThreadPreviewCount,
       settings.timestampFormat,
       theme,
@@ -458,6 +491,7 @@ export function useSettingsRestore(onRestored?: () => void) {
     setTheme("system");
     updateSettings({
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
+      notificationLevel: DEFAULT_UNIFIED_SETTINGS.notificationLevel,
       diffWordWrap: DEFAULT_UNIFIED_SETTINGS.diffWordWrap,
       diffIgnoreWhitespace: DEFAULT_UNIFIED_SETTINGS.diffIgnoreWhitespace,
       sidebarThreadPreviewCount: DEFAULT_UNIFIED_SETTINGS.sidebarThreadPreviewCount,
@@ -483,6 +517,7 @@ export function GeneralSettingsPanel() {
   const { theme, setTheme } = useTheme();
   const settings = useSettings();
   const { updateSettings } = useUpdateSettings();
+  const { permission: notificationPermission, requestPermission } = useNotification();
   const observability = useServerObservability();
   const serverProviders = useServerProviders();
   const diagnosticsDescription = formatDiagnosticsDescription({
@@ -593,6 +628,124 @@ export function GeneralSettingsPanel() {
             </Select>
           }
         />
+
+        <SettingsRow
+          title="Notifications"
+          description="Show OS notifications while T3 Code is running in the background."
+          resetAction={
+            settings.notificationLevel !== DEFAULT_UNIFIED_SETTINGS.notificationLevel ? (
+              <SettingResetButton
+                label="notifications"
+                onClick={() =>
+                  updateSettings({
+                    notificationLevel: DEFAULT_UNIFIED_SETTINGS.notificationLevel,
+                  })
+                }
+              />
+            ) : null
+          }
+          control={
+            <Select
+              value={settings.notificationLevel}
+              onValueChange={(value) => {
+                if (
+                  value === "off" ||
+                  value === "important" ||
+                  value === "normal" ||
+                  value === "verbose"
+                ) {
+                  updateSettings({ notificationLevel: value });
+                }
+              }}
+            >
+              <SelectTrigger className="w-full sm:w-40" aria-label="Notification level">
+                <SelectValue>
+                  {NOTIFICATION_LEVEL_OPTIONS.find(
+                    (option) => option.value === settings.notificationLevel,
+                  )?.label ?? "Normal"}
+                </SelectValue>
+              </SelectTrigger>
+              <SelectPopup align="end" alignItemWithTrigger={false}>
+                {NOTIFICATION_LEVEL_OPTIONS.map((option) => (
+                  <SelectItem hideIndicator key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectPopup>
+            </Select>
+          }
+          status={
+            NOTIFICATION_LEVEL_OPTIONS.find((option) => option.value === settings.notificationLevel)
+              ?.description ?? null
+          }
+        >
+          <div className="mt-3 flex flex-col gap-3 border-t border-border/60 py-3">
+            <div className="flex flex-col gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-medium text-foreground">Permission status</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {isElectron
+                    ? "Desktop app permissions are managed by your OS."
+                    : notificationPermission === "unsupported"
+                      ? "Notifications are not supported by this browser."
+                      : notificationPermission === "granted"
+                        ? "Allowed"
+                        : notificationPermission === "denied"
+                          ? "Blocked"
+                          : "Not yet requested"}
+                </p>
+              </div>
+              {isElectron ? null : (
+                <Button
+                  size="xs"
+                  variant="outline"
+                  disabled={
+                    notificationPermission === "unsupported" || notificationPermission === "granted"
+                  }
+                  onClick={requestPermission}
+                >
+                  Request permission
+                </Button>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={
+                  settings.notificationLevel === "off" ||
+                  (!isElectron && notificationPermission !== "granted")
+                }
+                onClick={() => {
+                  const shown = showNativeNotification({
+                    title: "T3 Code",
+                    body: "Notification test from settings.",
+                    tag: "t3code:test",
+                  });
+                  if (!shown) {
+                    toastManager.add({
+                      type: "warning",
+                      title: "Notification was not sent",
+                      description: "Check browser or OS notification permissions.",
+                    });
+                  }
+                }}
+              >
+                Send test notification
+              </Button>
+              {!isElectron && notificationPermission === "denied" ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Enable notifications in your browser site settings to allow OS alerts.
+                </p>
+              ) : null}
+              {isElectron || notificationPermission === "granted" ? (
+                <p className="text-[11px] text-muted-foreground">
+                  If notifications still do not appear, check OS notification settings.
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </SettingsRow>
 
         <SettingsRow
           title="Diff line wrapping"

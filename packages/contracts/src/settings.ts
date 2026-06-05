@@ -21,6 +21,10 @@ export const SidebarThreadSortOrder = Schema.Literals(["updated_at", "created_at
 export type SidebarThreadSortOrder = typeof SidebarThreadSortOrder.Type;
 export const DEFAULT_SIDEBAR_THREAD_SORT_ORDER: SidebarThreadSortOrder = "updated_at";
 
+export const NotificationLevel = Schema.Literals(["off", "important", "normal", "verbose"]);
+export type NotificationLevel = typeof NotificationLevel.Type;
+export const DEFAULT_NOTIFICATION_LEVEL: NotificationLevel = "normal";
+
 export const SidebarProjectGroupingMode = Schema.Literals([
   "repository",
   "repository_path",
@@ -91,6 +95,9 @@ export const ClientSettingsSchema = Schema.Struct({
   ),
   timestampFormat: TimestampFormat.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_TIMESTAMP_FORMAT)),
+  ),
+  notificationLevel: NotificationLevel.pipe(
+    Schema.withDecodingDefault(Effect.succeed(DEFAULT_NOTIFICATION_LEVEL)),
   ),
 });
 export type ClientSettings = typeof ClientSettingsSchema.Type;
@@ -509,5 +516,6 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
   timestampFormat: Schema.optionalKey(TimestampFormat),
+  notificationLevel: Schema.optionalKey(NotificationLevel),
 });
 export type ClientSettingsPatch = typeof ClientSettingsPatch.Type;

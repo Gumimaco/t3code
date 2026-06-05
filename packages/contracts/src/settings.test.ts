@@ -2,11 +2,39 @@ import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
 import { ProviderInstanceId } from "./providerInstance.ts";
-import { DEFAULT_SERVER_SETTINGS, ServerSettings, ServerSettingsPatch } from "./settings.ts";
+import {
+  ClientSettingsPatch,
+  ClientSettingsSchema,
+  DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_SERVER_SETTINGS,
+  ServerSettings,
+  ServerSettingsPatch,
+} from "./settings.ts";
 
+const decodeClientSettings = Schema.decodeUnknownSync(ClientSettingsSchema);
+const decodeClientSettingsPatch = Schema.decodeUnknownSync(ClientSettingsPatch);
 const decodeServerSettings = Schema.decodeUnknownSync(ServerSettings);
 const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
+
+describe("ClientSettings notifications", () => {
+  it("defaults notification level to normal for legacy stored settings", () => {
+    expect(decodeClientSettings({}).notificationLevel).toBe("normal");
+    expect(DEFAULT_CLIENT_SETTINGS.notificationLevel).toBe("normal");
+  });
+
+  it("accepts notification level patches", () => {
+    expect(decodeClientSettingsPatch({}).notificationLevel).toBeUndefined();
+    expect(decodeClientSettingsPatch({ notificationLevel: "verbose" }).notificationLevel).toBe(
+      "verbose",
+    );
+  });
+
+  it("rejects invalid notification levels", () => {
+    expect(() => decodeClientSettings({ notificationLevel: "loud" })).toThrow();
+    expect(() => decodeClientSettingsPatch({ notificationLevel: "loud" })).toThrow();
+  });
+});
 
 describe("ServerSettings.providerInstances (slice-2 invariant)", () => {
   it("defaults to an empty record so legacy configs without the key still decode", () => {

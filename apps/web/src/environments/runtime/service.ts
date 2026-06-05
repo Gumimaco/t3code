@@ -6,6 +6,7 @@ import {
   type OrchestrationEvent,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamEvent,
+  type OrchestrationSessionStatus,
   type ServerConfig,
   EnvironmentAuthInvalidError,
   ThreadId,
@@ -42,6 +43,12 @@ import {
 } from "~/composerDraftStore";
 import { ensureLocalApi } from "~/localApi";
 import { collectActiveTerminalUiThreadKeys } from "~/lib/terminalUiStateCleanup";
+import {
+  isAppBackgrounded,
+  resolveAttentionNotification,
+  resolveTurnCompletionNotification,
+  showNativeNotification,
+} from "~/lib/nativeNotifications";
 import { deriveOrchestrationBatchEffects } from "~/orchestrationEventEffects";
 import { getPrimaryKnownEnvironment } from "../primary";
 import { webRuntime } from "../../lib/runtime";
@@ -74,6 +81,7 @@ import {
   useStore,
   selectProjectsAcrossEnvironments,
   selectSidebarThreadSummaryByRef,
+  selectSidebarThreadsAcrossEnvironments,
   selectThreadByRef,
   selectThreadsAcrossEnvironments,
 } from "~/store";
@@ -140,6 +148,16 @@ const lastAppliedProjectionVersionByEnvironment = new Map<
   }
 >();
 const terminalMetadataSubscriptions = new Map<EnvironmentId, () => void>();
+const lastSessionByThreadKey = new Map<
+  string,
+  { status: OrchestrationSessionStatus; activeTurnId: string | null }
+>();
+const lastNotifiedTurnByThreadKey = new Map<string, string>();
+const lastNotifiedActivityByThreadKey = new Map<string, string>();
+const lastPendingAttentionByThreadKey = new Map<
+  string,
+  { hasPendingApprovals: boolean; hasPendingUserInput: boolean }
+>();
 
 let activeService: EnvironmentServiceState | null = null;
 let needsProviderInvalidation = false;
@@ -983,6 +1001,98 @@ function reconcileSnapshotDerivedState() {
   useTerminalUiStateStore.getState().removeOrphanedTerminalUiStates(activeThreadKeys);
 }
 
+function maybeNotifyForThreads() {
+  const notificationLevel = getClientSettings().notificationLevel;
+  const shouldNotify = isAppBackgrounded() && notificationLevel !== "off";
+  const appState = useStore.getState();
+  const sidebarSummaryByThreadKey = new Map(
+    selectSidebarThreadsAcrossEnvironments(appState).map((summary) => [
+      scopedThreadKey(scopeThreadRef(summary.environmentId, summary.id)),
+      summary,
+    ]),
+  );
+  const seenThreadKeys = new Set<string>();
+
+  for (const thread of selectThreadsAcrossEnvironments(appState)) {
+    const threadKey = scopedThreadKey(scopeThreadRef(thread.environmentId, thread.id));
+    seenThreadKeys.add(threadKey);
+
+    const completionNotification = resolveTurnCompletionNotification({
+      shouldNotify,
+      level: notificationLevel,
+      thread,
+      previous: lastSessionByThreadKey.get(threadKey),
+      lastNotifiedTurnId: lastNotifiedTurnByThreadKey.get(threadKey),
+    });
+    if (completionNotification) {
+      const { title, body, tag, turnId } = completionNotification;
+      if (showNativeNotification({ title, body, tag })) {
+        lastNotifiedTurnByThreadKey.set(threadKey, turnId);
+      }
+    }
+
+    const attentionNotification = resolveAttentionNotification({
+      shouldNotify,
+      level: notificationLevel,
+      thread,
+      lastNotifiedActivityId: lastNotifiedActivityByThreadKey.get(threadKey),
+    });
+    let showedActivityNotification = false;
+    if (attentionNotification) {
+      const { title, body, tag, activityId } = attentionNotification;
+      if (showNativeNotification({ title, body, tag })) {
+        lastNotifiedActivityByThreadKey.set(threadKey, activityId);
+        showedActivityNotification = true;
+      }
+    }
+
+    const sidebarSummary = sidebarSummaryByThreadKey.get(threadKey);
+    const previousAttention = lastPendingAttentionByThreadKey.get(threadKey);
+    if (sidebarSummary) {
+      if (shouldNotify && !showedActivityNotification && previousAttention) {
+        if (!previousAttention.hasPendingApprovals && sidebarSummary.hasPendingApprovals) {
+          showNativeNotification({
+            title: "Approval required",
+            body: thread.title,
+            tag: `t3code:${threadKey}:approval-required`,
+          });
+        } else if (!previousAttention.hasPendingUserInput && sidebarSummary.hasPendingUserInput) {
+          showNativeNotification({
+            title: "Input required",
+            body: thread.title,
+            tag: `t3code:${threadKey}:input-required`,
+          });
+        }
+      }
+      lastPendingAttentionByThreadKey.set(threadKey, {
+        hasPendingApprovals: sidebarSummary.hasPendingApprovals,
+        hasPendingUserInput: sidebarSummary.hasPendingUserInput,
+      });
+    } else {
+      lastPendingAttentionByThreadKey.delete(threadKey);
+    }
+
+    if (thread.session) {
+      lastSessionByThreadKey.set(threadKey, {
+        status: thread.session.orchestrationStatus,
+        activeTurnId: thread.session.activeTurnId ?? null,
+      });
+    } else {
+      lastSessionByThreadKey.delete(threadKey);
+    }
+  }
+
+  for (const threadKey of lastSessionByThreadKey.keys()) {
+    if (seenThreadKeys.has(threadKey)) {
+      continue;
+    }
+    lastSessionByThreadKey.delete(threadKey);
+    lastNotifiedTurnByThreadKey.delete(threadKey);
+    lastNotifiedActivityByThreadKey.delete(threadKey);
+    lastPendingAttentionByThreadKey.delete(threadKey);
+  }
+}
+
 function applyRecoveredEventBatch(
   events: ReadonlyArray<OrchestrationEvent>,
   environmentId: EnvironmentId,
@@ -1052,6 +1162,7 @@ function applyRecoveredEventBatch(
       .removeTerminalUiState(scopeThreadRef(environmentId, threadId));
   }
 
+  maybeNotifyForThreads();
   reconcileThreadDetailSubscriptionEvictionForEnvironment(environmentId);
 }
 
@@ -1099,6 +1210,7 @@ function applyShellEvent(event: OrchestrationShellStreamEvent, environmentId: En
       }
       reconcileThreadDetailSubscriptionEvictionForThread(environmentId, event.thread.id);
       evictIdleThreadDetailSubscriptionsToCapacity();
+      maybeNotifyForThreads();
       return;
     case "thread-removed":
       if (threadRef) {
@@ -1108,6 +1220,7 @@ function applyShellEvent(event: OrchestrationShellStreamEvent, environmentId: En
         useTerminalUiStateStore.getState().removeTerminalUiState(threadRef);
       }
       syncThreadUiFromStore();
+      maybeNotifyForThreads();
       return;
   }
 }
@@ -1138,6 +1251,7 @@ function createEnvironmentConnectionHandlers() {
       );
       reconcileThreadDetailSubscriptionEvictionForEnvironment(environmentId);
       reconcileSnapshotDerivedState();
+      maybeNotifyForThreads();
     },
   };
 }
