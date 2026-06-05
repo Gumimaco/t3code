@@ -838,7 +838,7 @@ function ReviewFileTree(props: {
   );
 
   const renderNode = (node: ReviewTreeNode, depth: number): ReactNode => {
-    const paddingLeft = 8 + depth * 14;
+    const paddingLeft = 8 + depth * 12;
     if (node.kind === "directory") {
       const expanded = expandedDirectories[node.path] ?? true;
       const selected =
@@ -865,6 +865,7 @@ function ReviewFileTree(props: {
             <button
               type="button"
               className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
+              title={node.path}
               onClick={() => props.onSelectFolder(node.path)}
             >
               {expanded ? (
@@ -872,7 +873,7 @@ function ReviewFileTree(props: {
               ) : (
                 <FolderClosedIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
               )}
-              <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground group-hover:text-foreground">
+              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
                 {node.name}
               </span>
               <span className="ml-auto shrink-0">
@@ -900,11 +901,12 @@ function ReviewFileTree(props: {
             selected && "bg-muted text-foreground",
           )}
           style={{ paddingLeft }}
+          title={node.path}
           onClick={() => props.onSelectFile(node.path)}
         >
           <span aria-hidden="true" className="size-4 shrink-0" />
           <FileIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-          <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground group-hover:text-foreground">
+          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
             {node.name}
           </span>
           <span className="ml-auto shrink-0">
@@ -959,6 +961,10 @@ function ReviewCommentsPanel(props: {
     Boolean(selectedTarget) &&
     commentBody.trim().length > 0 &&
     !isSubmittingComment;
+
+  const cancelComment = useCallback(() => {
+    setCommentBody("");
+  }, []);
 
   const runSubmitComment = useCallback(() => {
     if (!props.onSubmitComment || !selectedSource || !selectedTarget || !canSubmitComment) {
@@ -1102,21 +1108,38 @@ function ReviewCommentsPanel(props: {
               placeholder="Leave a review comment"
               data-review-comment-textarea="true"
               onChange={(event) => setCommentBody(event.currentTarget.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  cancelComment();
+                  event.currentTarget.blur();
+                }
+              }}
             />
-            <Button
-              type="button"
-              size="xs"
-              className="w-full"
-              disabled={!canSubmitComment}
-              onClick={runSubmitComment}
-            >
-              {isSubmittingComment ? (
-                <Loader2Icon className="size-3.5 animate-spin" />
-              ) : (
-                <MessageSquarePlusIcon className="size-3.5" />
-              )}
-              Add comment
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                size="xs"
+                variant="outline"
+                disabled={commentBody.length === 0 || isSubmittingComment}
+                onClick={cancelComment}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                size="xs"
+                disabled={!canSubmitComment}
+                onClick={runSubmitComment}
+              >
+                {isSubmittingComment ? (
+                  <Loader2Icon className="size-3.5 animate-spin" />
+                ) : (
+                  <MessageSquarePlusIcon className="size-3.5" />
+                )}
+                Add comment
+              </Button>
+            </div>
           </div>
         ) : null}
 
@@ -1439,6 +1462,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
     selectedTarget,
   ]);
 
+  const cancelInlineComment = useCallback(() => {
+    setInlineCommentBody("");
+    setLocalLineTarget(null);
+  }, []);
+
   const renderLineAnnotation = useCallback(
     (annotation: DiffLineAnnotation<ReviewLineAnnotationMetadata>) => {
       const metadata = annotation.metadata;
@@ -1472,13 +1500,28 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
             data-review-inline-comment-textarea="true"
             onChange={(event) => setInlineCommentBody(event.currentTarget.value)}
             onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
+                cancelInlineComment();
+                event.currentTarget.blur();
+                return;
+              }
               if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
                 event.preventDefault();
                 runSubmitInlineComment();
               }
             }}
           />
-          <div className="mt-2 flex justify-end">
+          <div className="mt-2 flex justify-end gap-2">
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              disabled={metadata.isSubmitting}
+              onClick={cancelInlineComment}
+            >
+              Cancel
+            </Button>
             <Button
               type="button"
               size="xs"
@@ -1496,7 +1539,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
         </div>
       );
     },
-    [runSubmitInlineComment],
+    [cancelInlineComment, runSubmitInlineComment],
   );
 
   useEffect(() => {
@@ -1506,6 +1549,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       }
 
       const key = event.key.toLowerCase();
+      if (key === "escape" && selectedTarget?.kind === "line") {
+        event.preventDefault();
+        cancelInlineComment();
+        return;
+      }
+
       if (key === "v" && selectedTarget && selectedTarget.kind !== "folder") {
         event.preventDefault();
         markViewed(selectedTarget.path);
@@ -1535,7 +1584,14 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [markViewed, props.onSubmitComment, selectFileByOffset, selectedSource, selectedTarget]);
+  }, [
+    cancelInlineComment,
+    markViewed,
+    props.onSubmitComment,
+    selectFileByOffset,
+    selectedSource,
+    selectedTarget,
+  ]);
 
   const selectedSourceHasDiff = selectedSource ? hasDiffText(selectedSource) : false;
   const noGit = !props.isGitRepo || (preview.status === "success" && sources.length === 0);
@@ -1689,7 +1745,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
           }
         />
       ) : (
-        <div className="grid min-h-0 flex-1 grid-cols-[minmax(180px,240px)_minmax(0,1fr)_minmax(220px,280px)]">
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(260px,360px)_minmax(0,1fr)_minmax(220px,280px)]">
           <aside className="flex min-h-0 flex-col border-r border-border/70 bg-background">
             <div className="border-b border-border/70 px-3 py-2">
               <div className="flex items-center justify-between gap-2">
