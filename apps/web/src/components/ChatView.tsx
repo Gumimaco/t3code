@@ -2625,7 +2625,6 @@ export default function ChatView(props: ChatViewProps) {
         });
         turnStartSucceeded = true;
         closeReviewMode();
-        setPlanSidebarOpen(true);
       } catch (err) {
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageId),
