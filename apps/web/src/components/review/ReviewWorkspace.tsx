@@ -1781,6 +1781,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
             {sources.map((source) => (
               <Toggle
                 key={normalizeSourceId(source)}
+                className="px-3"
                 value={source.kind}
                 aria-label={`Show ${sourceTitle(source)}`}
                 title={sourceSubtitle(source)}
