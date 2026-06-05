@@ -1935,8 +1935,8 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "review.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
-  const onToggleReview = useCallback(() => {
-    if (!isServerThread || (!isGitRepo && !reviewOpen)) {
+  const closeReviewMode = useCallback(() => {
+    if (!isServerThread) {
       return;
     }
     void navigate({
@@ -1946,14 +1946,31 @@ export default function ChatView(props: ChatViewProps) {
         threadId,
       },
       replace: true,
-      search: (previous) => {
-        if (reviewOpen) {
-          return stripReviewSearchParams(previous);
-        }
-        return { ...previous, view: "review" };
-      },
+      search: (previous) => stripReviewSearchParams(previous),
     });
-  }, [environmentId, isGitRepo, isServerThread, navigate, reviewOpen, threadId]);
+  }, [environmentId, isServerThread, navigate, threadId]);
+  const onToggleReview = useCallback(
+    (open?: boolean) => {
+      const shouldOpen = typeof open === "boolean" ? open : !reviewOpen;
+      if (!isServerThread || (!isGitRepo && shouldOpen)) {
+        return;
+      }
+      if (!shouldOpen) {
+        closeReviewMode();
+        return;
+      }
+      void navigate({
+        to: "/$environmentId/$threadId",
+        params: {
+          environmentId,
+          threadId,
+        },
+        replace: true,
+        search: (previous) => ({ ...previous, view: "review" }),
+      });
+    },
+    [closeReviewMode, environmentId, isGitRepo, isServerThread, navigate, reviewOpen, threadId],
+  );
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
       return;
@@ -2607,6 +2624,8 @@ export default function ChatView(props: ChatViewProps) {
           createdAt,
         });
         turnStartSucceeded = true;
+        closeReviewMode();
+        setPlanSidebarOpen(true);
       } catch (err) {
         setOptimisticUserMessages((existing) =>
           existing.filter((message) => message.id !== messageId),
@@ -2627,6 +2646,7 @@ export default function ChatView(props: ChatViewProps) {
       activeEnvironmentUnavailableLabel,
       activeThread,
       beginLocalDispatch,
+      closeReviewMode,
       environmentId,
       isConnecting,
       isSendBusy,

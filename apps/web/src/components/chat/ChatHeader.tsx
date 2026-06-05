@@ -45,7 +45,7 @@ interface ChatHeaderProps {
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
-  onToggleReview: () => void;
+  onToggleReview: (open?: boolean) => void;
 }
 
 export function shouldShowOpenInPicker(input: {
@@ -176,7 +176,7 @@ export const ChatHeader = memo(function ChatHeader({
               <Toggle
                 className="shrink-0"
                 pressed={reviewOpen}
-                onPressedChange={onToggleReview}
+                onPressedChange={(open) => onToggleReview(open)}
                 aria-label="Toggle review mode"
                 variant="outline"
                 size="xs"

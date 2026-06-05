@@ -56,6 +56,7 @@ type DiffThemeType = "light" | "dark";
 type ReviewCommentTargetKind = "file" | "folder" | "line";
 type ReviewLinePlacement = "line" | "file-top";
 type PreviewStatus = "idle" | "loading" | "success" | "error";
+type ReviewFixPending = "selected" | "all" | `comment:${string}`;
 
 export interface ReviewWorkspaceComment {
   readonly id: string;
@@ -776,6 +777,20 @@ function buildReviewFixPrompt(input: {
     .join("\n");
 }
 
+function buildReviewCommentFixPrompt(input: {
+  readonly selectedSource: ReviewDiffPreviewSource;
+  readonly comment: NormalizedReviewComment;
+}): string {
+  return [
+    "Apply the smallest necessary changes in the current worktree to resolve this review comment.",
+    `Source: ${sourceTitle(input.selectedSource)} (${sourceSubtitle(input.selectedSource)})`,
+    `Target: ${formatReviewTarget(input.comment)}`,
+    "",
+    "Review comment:",
+    input.comment.body.trim() || "No comment text.",
+  ].join("\n");
+}
+
 function ReviewWorkspaceEmptyState(props: {
   readonly title: string;
   readonly description: string;
@@ -949,12 +964,15 @@ function ReviewCommentsPanel(props: {
 }) {
   const [commentBody, setCommentBody] = useState("");
   const [isSubmittingComment, setIsSubmittingComment] = useState(false);
-  const [fixPending, setFixPending] = useState<"selected" | "all" | null>(null);
+  const [fixPending, setFixPending] = useState<ReviewFixPending | null>(null);
   const fileComments = props.comments.filter((comment) => comment.targetKind === "file");
   const folderComments = props.comments.filter((comment) => comment.targetKind === "folder");
   const lineComments = props.comments.filter((comment) => comment.targetKind === "line");
   const selectedSource = props.selectedSource;
   const selectedTarget = props.selectedTarget;
+  const commentFixPendingId = fixPending?.startsWith("comment:")
+    ? fixPending.slice("comment:".length)
+    : null;
   const canSubmitComment =
     Boolean(props.onSubmitComment) &&
     Boolean(selectedSource) &&
@@ -1026,7 +1044,7 @@ function ReviewCommentsPanel(props: {
           console.warn("Failed to run review fix action.", error);
         })
         .finally(() => {
-          setFixPending(null);
+          setFixPending((current) => (current === scope ? null : current));
         });
     },
     [
@@ -1038,6 +1056,30 @@ function ReviewCommentsPanel(props: {
       selectedSource,
       selectedTarget,
     ],
+  );
+  const runFixComment = useCallback(
+    (comment: NormalizedReviewComment) => {
+      if (!selectedSource || !props.onRunReviewPrompt) {
+        return;
+      }
+      const pendingKey = `comment:${comment.id}` as const;
+      setFixPending(pendingKey);
+      void Promise.resolve(
+        props.onRunReviewPrompt(
+          buildReviewCommentFixPrompt({
+            selectedSource,
+            comment,
+          }),
+        ),
+      )
+        .catch((error: unknown) => {
+          console.warn("Failed to run review comment fix action.", error);
+        })
+        .finally(() => {
+          setFixPending((current) => (current === pendingKey ? null : current));
+        });
+    },
+    [props.onRunReviewPrompt, selectedSource],
   );
 
   return (
@@ -1074,7 +1116,7 @@ function ReviewCommentsPanel(props: {
                   ) : (
                     <WandSparklesIcon className="size-3.5" />
                   )}
-                  Fix selected
+                  Fix target
                 </Button>
               ) : null}
               {props.onFixAll || props.onRunReviewPrompt ? (
@@ -1143,9 +1185,30 @@ function ReviewCommentsPanel(props: {
           </div>
         ) : null}
 
-        <CommentGroup title="Line comments" comments={lineComments} />
-        <CommentGroup title="File comments" comments={fileComments} />
-        <CommentGroup title="Folder comments" comments={folderComments} />
+        <CommentGroup
+          title="Line comments"
+          comments={lineComments}
+          selectedSource={selectedSource}
+          onFixComment={props.onRunReviewPrompt ? runFixComment : undefined}
+          commentFixPendingId={commentFixPendingId}
+          commentFixDisabled={fixPending !== null || props.isRunDisabled === true}
+        />
+        <CommentGroup
+          title="File comments"
+          comments={fileComments}
+          selectedSource={selectedSource}
+          onFixComment={props.onRunReviewPrompt ? runFixComment : undefined}
+          commentFixPendingId={commentFixPendingId}
+          commentFixDisabled={fixPending !== null || props.isRunDisabled === true}
+        />
+        <CommentGroup
+          title="Folder comments"
+          comments={folderComments}
+          selectedSource={selectedSource}
+          onFixComment={props.onRunReviewPrompt ? runFixComment : undefined}
+          commentFixPendingId={commentFixPendingId}
+          commentFixDisabled={fixPending !== null || props.isRunDisabled === true}
+        />
       </div>
     </aside>
   );
@@ -1154,6 +1217,10 @@ function ReviewCommentsPanel(props: {
 function CommentGroup(props: {
   readonly title: string;
   readonly comments: ReadonlyArray<NormalizedReviewComment>;
+  readonly selectedSource: ReviewDiffPreviewSource | null;
+  readonly onFixComment?: ((comment: NormalizedReviewComment) => void) | undefined;
+  readonly commentFixPendingId: string | null;
+  readonly commentFixDisabled: boolean;
 }) {
   return (
     <div className="space-y-2">
@@ -1176,8 +1243,31 @@ function CommentGroup(props: {
               key={comment.id}
               className="space-y-1 rounded-md border border-border/70 bg-muted/25 p-2"
             >
-              <div className="truncate font-mono text-[11px] text-foreground">
-                {formatReviewTarget(comment)}
+              <div className="flex min-w-0 items-start justify-between gap-2">
+                <div className="min-w-0 truncate font-mono text-[11px] text-foreground">
+                  {formatReviewTarget(comment)}
+                </div>
+                {props.onFixComment ? (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="h-6 shrink-0 px-2 text-[10px]"
+                    disabled={
+                      !props.selectedSource ||
+                      props.commentFixDisabled ||
+                      props.commentFixPendingId === comment.id
+                    }
+                    onClick={() => props.onFixComment?.(comment)}
+                  >
+                    {props.commentFixPendingId === comment.id ? (
+                      <Loader2Icon className="size-3 animate-spin" />
+                    ) : (
+                      <WandSparklesIcon className="size-3" />
+                    )}
+                    Fix
+                  </Button>
+                ) : null}
               </div>
               {comment.meta ? (
                 <div className="truncate text-[10px] text-muted-foreground">{comment.meta}</div>
