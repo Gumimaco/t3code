@@ -9,7 +9,7 @@ import { scopeThreadRef } from "@t3tools/client-runtime";
 import { memo } from "react";
 import GitActionsControl from "../GitActionsControl";
 import { type DraftId } from "~/composerDraftStore";
-import { DiffIcon, TerminalSquareIcon } from "lucide-react";
+import { DiffIcon, GitPullRequestIcon, TerminalSquareIcon } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import ProjectScriptsControl, { type NewProjectScriptInput } from "../ProjectScriptsControl";
@@ -34,14 +34,18 @@ interface ChatHeaderProps {
   terminalOpen: boolean;
   terminalToggleShortcutLabel: string | null;
   diffToggleShortcutLabel: string | null;
+  reviewToggleShortcutLabel: string | null;
+  reviewAvailable: boolean;
   gitCwd: string | null;
   diffOpen: boolean;
+  reviewOpen: boolean;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<void>;
   onUpdateProjectScript: (scriptId: string, input: NewProjectScriptInput) => Promise<void>;
   onDeleteProjectScript: (scriptId: string) => Promise<void>;
   onToggleTerminal: () => void;
   onToggleDiff: () => void;
+  onToggleReview: () => void;
 }
 
 export function shouldShowOpenInPicker(input: {
@@ -72,14 +76,18 @@ export const ChatHeader = memo(function ChatHeader({
   terminalOpen,
   terminalToggleShortcutLabel,
   diffToggleShortcutLabel,
+  reviewToggleShortcutLabel,
+  reviewAvailable,
   gitCwd,
   diffOpen,
+  reviewOpen,
   onRunProjectScript,
   onAddProjectScript,
   onUpdateProjectScript,
   onDeleteProjectScript,
   onToggleTerminal,
   onToggleDiff,
+  onToggleReview,
 }: ChatHeaderProps) {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const showOpenInPicker = shouldShowOpenInPicker({
@@ -160,6 +168,32 @@ export const ChatHeader = memo(function ChatHeader({
               : terminalToggleShortcutLabel
                 ? `Toggle terminal drawer (${terminalToggleShortcutLabel})`
                 : "Toggle terminal drawer"}
+          </TooltipPopup>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Toggle
+                className="shrink-0"
+                pressed={reviewOpen}
+                onPressedChange={onToggleReview}
+                aria-label="Toggle review mode"
+                variant="outline"
+                size="xs"
+                disabled={!reviewAvailable || (!isGitRepo && !reviewOpen)}
+              >
+                <GitPullRequestIcon className="size-3" />
+              </Toggle>
+            }
+          />
+          <TooltipPopup side="bottom">
+            {!reviewAvailable
+              ? "Review mode is unavailable until this thread is saved."
+              : !isGitRepo && !reviewOpen
+                ? "Review mode is unavailable because this project is not a git repository."
+                : reviewToggleShortcutLabel
+                  ? `Toggle review mode (${reviewToggleShortcutLabel})`
+                  : "Toggle review mode"}
           </TooltipPopup>
         </Tooltip>
         <Tooltip>

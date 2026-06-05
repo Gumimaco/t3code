@@ -196,7 +196,10 @@ function ChatThreadRouteView() {
     void navigate({
       to: "/$environmentId/$threadId",
       params: buildThreadRouteParams(threadRef),
-      search: { diff: undefined },
+      search: (previous) => {
+        const rest = stripDiffSearchParams(previous);
+        return { ...rest, diff: undefined };
+      },
     });
   }, [navigate, threadRef]);
   const openDiff = useCallback(() => {
@@ -279,7 +282,15 @@ function ChatThreadRouteView() {
 export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
   validateSearch: (search) => parseDiffRouteSearch(search),
   search: {
-    middlewares: [retainSearchParams<DiffRouteSearch>(["diff"])],
+    middlewares: [
+      retainSearchParams<DiffRouteSearch>([
+        "diff",
+        "view",
+        "reviewSource",
+        "reviewBaseRef",
+        "reviewFilePath",
+      ]),
+    ],
   },
   component: ChatThreadRouteView,
 });
