@@ -45,8 +45,8 @@ const PREPARED_COMMIT_PATCH_MAX_OUTPUT_BYTES = 49_000;
 const RANGE_COMMIT_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_SUMMARY_MAX_OUTPUT_BYTES = 19_000;
 const RANGE_DIFF_PATCH_MAX_OUTPUT_BYTES = 59_000;
-const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 120_000;
-const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 80_000;
+const REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES = 5_000_000;
+const REVIEW_UNTRACKED_DIFF_MAX_OUTPUT_BYTES = 2_000_000;
 const WORKSPACE_FILES_MAX_OUTPUT_BYTES = 120_000;
 const STATUS_UPSTREAM_REFRESH_INTERVAL = Duration.seconds(15);
 const STATUS_UPSTREAM_REFRESH_TIMEOUT = Duration.seconds(5);
@@ -1708,13 +1708,23 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
     }
 
     const branch = details.branch;
-    const baseRef =
-      input.baseRef ??
-      (branch
-        ? yield* resolveBaseBranchForNoUpstream(input.cwd, branch).pipe(
-            Effect.orElseSucceed(() => null),
-          )
-        : null);
+    const fallbackBaseRef = branch
+      ? yield* resolveBaseBranchForNoUpstream(input.cwd, branch).pipe(
+          Effect.orElseSucceed(() => null),
+        )
+      : null;
+    const requestedBaseRef = input.baseRef?.trim() ?? null;
+    const requestedBaseIsUsable =
+      requestedBaseRef &&
+      requestedBaseRef !== "HEAD" &&
+      requestedBaseRef !== branch &&
+      requestedBaseRef !== `refs/heads/${branch}`;
+    const baseCandidates = [
+      requestedBaseIsUsable ? requestedBaseRef : null,
+      fallbackBaseRef,
+    ].filter((candidate, index, candidates): candidate is string => {
+      return Boolean(candidate) && candidates.indexOf(candidate) === index;
+    });
 
     const dirtyTrackedResult = yield* executeGit(
       "GitVcsDriver.getReviewDiffPreview.dirtyTracked",
@@ -1740,17 +1750,24 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       .filter((diff) => diff.length > 0)
       .join("\n");
 
-    const baseMergeBase = baseRef
-      ? yield* runGitStdout("GitVcsDriver.getReviewDiffPreview.mergeBase", input.cwd, [
-          "merge-base",
-          baseRef,
-          "HEAD",
-        ]).pipe(
-          Effect.map((stdout) => stdout.trim()),
-          Effect.map((stdout) => (stdout.length > 0 ? stdout : null)),
-          Effect.orElseSucceed(() => null),
-        )
-      : null;
+    let baseRef: string | null = null;
+    let baseMergeBase: string | null = null;
+    for (const candidate of baseCandidates) {
+      const mergeBase = yield* runGitStdout(
+        "GitVcsDriver.getReviewDiffPreview.mergeBase",
+        input.cwd,
+        ["merge-base", candidate, "HEAD"],
+      ).pipe(
+        Effect.map((stdout) => stdout.trim()),
+        Effect.map((stdout) => (stdout.length > 0 ? stdout : null)),
+        Effect.orElseSucceed(() => null),
+      );
+      if (mergeBase) {
+        baseRef = candidate;
+        baseMergeBase = mergeBase;
+        break;
+      }
+    }
     const baseResult = baseMergeBase
       ? yield* executeGit(
           "GitVcsDriver.getReviewDiffPreview.base",

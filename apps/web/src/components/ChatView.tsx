@@ -210,9 +210,12 @@ const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
 const ReviewWorkspaceCommentSchema = Schema.Struct({
   id: Schema.String,
-  targetKind: Schema.Literals(["file", "folder"]),
+  targetKind: Schema.Literals(["file", "folder", "line"]),
   path: Schema.String,
   body: Schema.String,
+  side: Schema.optionalKey(Schema.NullOr(Schema.Literals(["deletions", "additions"]))),
+  lineNumber: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+  placement: Schema.optionalKey(Schema.NullOr(Schema.Literals(["line", "file-top"]))),
   sourceId: Schema.optionalKey(Schema.NullOr(Schema.String)),
   authorLabel: Schema.optionalKey(Schema.NullOr(Schema.String)),
 });
@@ -2650,6 +2653,9 @@ export default function ChatView(props: ChatViewProps) {
           targetKind: draft.target.kind,
           path: draft.target.path,
           body,
+          side: draft.target.kind === "line" ? draft.target.side : null,
+          lineNumber: draft.target.kind === "line" ? draft.target.lineNumber : null,
+          placement: draft.target.kind === "line" ? draft.target.placement : null,
           sourceId: draft.sourceId,
           authorLabel: draft.sourceTitle,
         },
@@ -3879,11 +3885,10 @@ export default function ChatView(props: ChatViewProps) {
     [environmentId, isServerThread, navigate, onDiffPanelOpen, threadId],
   );
   const onReviewSourceChange = useCallback(
-    (source: ReviewRouteSource | undefined, baseRef?: string | null) => {
+    (source: ReviewRouteSource | undefined, _baseRef?: string | null) => {
       if (!isServerThread) {
         return;
       }
-      const normalizedBaseRef = baseRef?.trim();
       void navigate({
         to: "/$environmentId/$threadId",
         params: {
@@ -3895,8 +3900,7 @@ export default function ChatView(props: ChatViewProps) {
           ...previous,
           view: "review",
           reviewSource: source,
-          reviewBaseRef:
-            source === "branch-range" && normalizedBaseRef ? normalizedBaseRef : undefined,
+          reviewBaseRef: undefined,
           reviewFilePath: undefined,
         }),
       });

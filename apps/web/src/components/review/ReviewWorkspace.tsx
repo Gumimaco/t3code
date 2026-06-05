@@ -1,4 +1,10 @@
 import { FileDiff, Virtualizer } from "@pierre/diffs/react";
+import type {
+  AnnotationSide,
+  DiffLineAnnotation,
+  OnDiffLineClickProps,
+  SelectedLineRange,
+} from "@pierre/diffs";
 import type { FileDiffMetadata } from "@pierre/diffs/types";
 import type {
   EnvironmentId,
@@ -47,7 +53,8 @@ import { Toggle, ToggleGroup } from "../ui/toggle-group";
 
 type DiffRenderMode = "inline" | "split";
 type DiffThemeType = "light" | "dark";
-type ReviewCommentTargetKind = "file" | "folder";
+type ReviewCommentTargetKind = "file" | "folder" | "line";
+type ReviewLinePlacement = "line" | "file-top";
 type PreviewStatus = "idle" | "loading" | "success" | "error";
 
 export interface ReviewWorkspaceComment {
@@ -55,14 +62,29 @@ export interface ReviewWorkspaceComment {
   readonly targetKind: ReviewCommentTargetKind;
   readonly path: string;
   readonly body: string;
+  readonly side?: AnnotationSide | null;
+  readonly lineNumber?: number | null;
+  readonly placement?: ReviewLinePlacement | null;
   readonly sourceId?: string | null;
   readonly authorLabel?: string | null;
 }
 
-export interface ReviewWorkspaceTarget {
-  readonly kind: ReviewCommentTargetKind;
-  readonly path: string;
-}
+export type ReviewWorkspaceTarget =
+  | {
+      readonly kind: "file";
+      readonly path: string;
+    }
+  | {
+      readonly kind: "folder";
+      readonly path: string;
+    }
+  | {
+      readonly kind: "line";
+      readonly path: string;
+      readonly side: AnnotationSide;
+      readonly lineNumber: number;
+      readonly placement: ReviewLinePlacement;
+    };
 
 export interface ReviewWorkspaceCommentDraft {
   readonly sourceId: string;
@@ -155,8 +177,24 @@ interface NormalizedReviewComment {
   readonly targetKind: ReviewCommentTargetKind;
   readonly path: string;
   readonly body: string;
+  readonly side: AnnotationSide | null;
+  readonly lineNumber: number | null;
+  readonly placement: ReviewLinePlacement | null;
   readonly meta: string | null;
 }
+
+type ReviewLineAnnotationMetadata =
+  | {
+      readonly kind: "comment";
+      readonly comment: NormalizedReviewComment;
+    }
+  | {
+      readonly kind: "draft";
+      readonly target: Extract<ReviewWorkspaceTarget, { readonly kind: "line" }>;
+      readonly body: string;
+      readonly canSubmit: boolean;
+      readonly isSubmitting: boolean;
+    };
 
 const REVIEW_DIFF_UNSAFE_CSS = `
 [data-diffs-header],
@@ -309,6 +347,87 @@ function isEditableEventTarget(target: EventTarget | null): boolean {
     return true;
   }
   return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
+function defaultAnnotationSide(fileDiff: FileDiffMetadata): AnnotationSide {
+  return fileDiff.additionLines.length > 0 ? "additions" : "deletions";
+}
+
+function formatAnnotationSide(side: AnnotationSide): string {
+  return side === "additions" ? "new" : "old";
+}
+
+function formatReviewTarget(target: ReviewWorkspaceTarget | NormalizedReviewComment): string {
+  const kind = "kind" in target ? target.kind : target.targetKind;
+  if (kind === "folder") {
+    return `Folder: ${target.path}`;
+  }
+  if (kind === "line") {
+    const lineNumber = "lineNumber" in target ? (target.lineNumber ?? 1) : 1;
+    const side = "side" in target ? (target.side ?? "additions") : "additions";
+    const placement = "placement" in target ? target.placement : null;
+    const prefix = placement === "file-top" ? "Top of file" : `Line ${lineNumber}`;
+    return `${prefix}: ${target.path} (${formatAnnotationSide(side)})`;
+  }
+  return `File: ${target.path}`;
+}
+
+function isSameReviewTarget(
+  comment: NormalizedReviewComment,
+  target: ReviewWorkspaceTarget,
+): boolean {
+  if (comment.targetKind !== target.kind || comment.path !== target.path) {
+    return false;
+  }
+  if (target.kind !== "line") {
+    return true;
+  }
+  return (
+    comment.lineNumber === target.lineNumber &&
+    comment.side === target.side &&
+    (comment.placement ?? "line") === target.placement
+  );
+}
+
+function createLineTarget(
+  filePath: string,
+  line: Pick<OnDiffLineClickProps, "annotationSide" | "lineNumber">,
+): Extract<ReviewWorkspaceTarget, { readonly kind: "line" }> {
+  return {
+    kind: "line",
+    path: filePath,
+    side: line.annotationSide,
+    lineNumber: line.lineNumber,
+    placement: "line",
+  };
+}
+
+function createFileTopTarget(
+  filePath: string,
+  fileDiff: FileDiffMetadata,
+): Extract<ReviewWorkspaceTarget, { readonly kind: "line" }> {
+  return {
+    kind: "line",
+    path: filePath,
+    side: defaultAnnotationSide(fileDiff),
+    lineNumber: 1,
+    placement: "file-top",
+  };
+}
+
+function selectedLineRangeForFile(
+  target: ReviewWorkspaceTarget | null,
+  filePath: string,
+): SelectedLineRange | null {
+  if (!target || target.kind !== "line" || target.path !== filePath) {
+    return null;
+  }
+  return {
+    start: target.lineNumber,
+    end: target.lineNumber,
+    side: target.side,
+    endSide: target.side,
+  };
 }
 
 function compareByName(left: { name: string }, right: { name: string }): number {
@@ -519,6 +638,9 @@ function normalizeWorkspaceComments(input: {
       targetKind: comment.targetKind,
       path: comment.path,
       body: comment.body,
+      side: comment.side ?? null,
+      lineNumber: comment.lineNumber ?? null,
+      placement: comment.placement ?? null,
       meta: comment.authorLabel ?? null,
     });
   }
@@ -532,6 +654,9 @@ function normalizeWorkspaceComments(input: {
       targetKind: "file",
       path: comment.filePath,
       body: comment.text,
+      side: null,
+      lineNumber: null,
+      placement: null,
       meta: comment.rangeLabel,
     });
   }
@@ -554,6 +679,51 @@ function totalDiffStat(files: ReadonlyArray<FileDiffMetadata>): ReviewDiffStat {
     },
     { additions: 0, deletions: 0 },
   );
+}
+
+function buildLineAnnotationsForFile(input: {
+  readonly filePath: string;
+  readonly comments: ReadonlyArray<NormalizedReviewComment>;
+  readonly selectedTarget: ReviewWorkspaceTarget | null;
+  readonly inlineCommentBody: string;
+  readonly canSubmitInlineComment: boolean;
+  readonly isSubmittingInlineComment: boolean;
+}): DiffLineAnnotation<ReviewLineAnnotationMetadata>[] {
+  const annotations: DiffLineAnnotation<ReviewLineAnnotationMetadata>[] = [];
+
+  for (const comment of input.comments) {
+    if (
+      comment.targetKind !== "line" ||
+      comment.path !== input.filePath ||
+      comment.lineNumber === null
+    ) {
+      continue;
+    }
+    annotations.push({
+      side: comment.side ?? "additions",
+      lineNumber: comment.lineNumber,
+      metadata: {
+        kind: "comment",
+        comment,
+      },
+    });
+  }
+
+  if (input.selectedTarget?.kind === "line" && input.selectedTarget.path === input.filePath) {
+    annotations.push({
+      side: input.selectedTarget.side,
+      lineNumber: input.selectedTarget.lineNumber,
+      metadata: {
+        kind: "draft",
+        target: input.selectedTarget,
+        body: input.inlineCommentBody,
+        canSubmit: input.canSubmitInlineComment,
+        isSubmitting: input.isSubmittingInlineComment,
+      },
+    });
+  }
+
+  return annotations;
 }
 
 function buildFixRequest(input: {
@@ -581,21 +751,17 @@ function buildReviewFixPrompt(input: {
 }): string {
   const scopedComments =
     input.scope === "selected" && input.selectedTarget
-      ? input.comments.filter(
-          (comment) =>
-            comment.targetKind === input.selectedTarget?.kind &&
-            comment.path === input.selectedTarget.path,
-        )
+      ? input.comments.filter((comment) => isSameReviewTarget(comment, input.selectedTarget!))
       : input.comments;
   const commentLines = scopedComments
     .filter((comment) => comment.body.trim().length > 0)
     .map((comment, index) => {
-      const label = `${comment.targetKind} ${comment.path}`;
+      const label = formatReviewTarget(comment);
       return `${index + 1}. ${label}: ${comment.body.trim()}`;
     });
   const targetLine =
     input.scope === "selected" && input.selectedTarget
-      ? `Target: ${input.selectedTarget.kind} ${input.selectedTarget.path}`
+      ? `Target: ${formatReviewTarget(input.selectedTarget)}`
       : "Target: all review comments in the selected source";
 
   return [
@@ -722,7 +888,8 @@ function ReviewFileTree(props: {
     }
 
     const selected =
-      props.selectedTarget?.kind === "file" && props.selectedTarget.path === node.path;
+      (props.selectedTarget?.kind === "file" || props.selectedTarget?.kind === "line") &&
+      props.selectedTarget.path === node.path;
     const viewed = props.viewedFilePaths.has(node.path);
     return (
       <div key={`file:${node.path}`} className="flex min-w-0 items-center gap-1">
@@ -783,6 +950,7 @@ function ReviewCommentsPanel(props: {
   const [fixPending, setFixPending] = useState<"selected" | "all" | null>(null);
   const fileComments = props.comments.filter((comment) => comment.targetKind === "file");
   const folderComments = props.comments.filter((comment) => comment.targetKind === "folder");
+  const lineComments = props.comments.filter((comment) => comment.targetKind === "line");
   const selectedSource = props.selectedSource;
   const selectedTarget = props.selectedTarget;
   const canSubmitComment =
@@ -871,9 +1039,7 @@ function ReviewCommentsPanel(props: {
       <div className="border-b border-border/70 px-3 py-2">
         <div className="text-xs font-medium text-foreground">Review notes</div>
         <div className="mt-0.5 truncate text-[11px] text-muted-foreground">
-          {selectedTarget
-            ? `${selectedTarget.kind === "folder" ? "Folder" : "File"}: ${selectedTarget.path}`
-            : "Select a file or folder"}
+          {selectedTarget ? formatReviewTarget(selectedTarget) : "Select a file or folder"}
         </div>
       </div>
 
@@ -954,6 +1120,7 @@ function ReviewCommentsPanel(props: {
           </div>
         ) : null}
 
+        <CommentGroup title="Line comments" comments={lineComments} />
         <CommentGroup title="File comments" comments={fileComments} />
         <CommentGroup title="Folder comments" comments={folderComments} />
       </div>
@@ -986,7 +1153,9 @@ function CommentGroup(props: {
               key={comment.id}
               className="space-y-1 rounded-md border border-border/70 bg-muted/25 p-2"
             >
-              <div className="truncate font-mono text-[11px] text-foreground">{comment.path}</div>
+              <div className="truncate font-mono text-[11px] text-foreground">
+                {formatReviewTarget(comment)}
+              </div>
               {comment.meta ? (
                 <div className="truncate text-[10px] text-muted-foreground">{comment.meta}</div>
               ) : null}
@@ -1007,13 +1176,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
     enabled: props.isGitRepo,
     environmentId: props.environmentId,
     cwd: reviewCwd,
-    baseRef: props.selectedBaseRef,
+    baseRef: null,
   });
   const [localFolderTarget, setLocalFolderTarget] = useState<ReviewWorkspaceTarget | null>(null);
   const [diffRenderMode, setDiffRenderMode] = useState<DiffRenderMode>("inline");
   const [wordWrap, setWordWrap] = useState(true);
   const [collapsedFileKeys, setCollapsedFileKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [viewedFilePaths, setViewedFilePaths] = useState<ReadonlySet<string>>(() => new Set());
+  const [localLineTarget, setLocalLineTarget] = useState<Extract<
+    ReviewWorkspaceTarget,
+    { readonly kind: "line" }
+  > | null>(null);
+  const [inlineCommentBody, setInlineCommentBody] = useState("");
+  const [isSubmittingInlineComment, setIsSubmittingInlineComment] = useState(false);
 
   const sources = useMemo(() => sortSources(preview.data?.sources ?? []), [preview.data?.sources]);
   const defaultSource = useMemo(() => getDefaultSource(sources), [sources]);
@@ -1060,11 +1235,13 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       : (allFilePaths[0] ?? null);
   const visibleDirectoryPathSet = useMemo(() => new Set(allDirectoryPaths), [allDirectoryPaths]);
   const selectedTarget =
-    localFolderTarget && visibleDirectoryPathSet.has(localFolderTarget.path)
-      ? localFolderTarget
-      : selectedFilePath
-        ? ({ kind: "file", path: selectedFilePath } satisfies ReviewWorkspaceTarget)
-        : null;
+    localLineTarget && selectedFilePath === localLineTarget.path
+      ? localLineTarget
+      : localFolderTarget && visibleDirectoryPathSet.has(localFolderTarget.path)
+        ? localFolderTarget
+        : selectedFilePath
+          ? ({ kind: "file", path: selectedFilePath } satisfies ReviewWorkspaceTarget)
+          : null;
   const displayedFiles = useMemo(() => {
     if (!selectedTarget) {
       return renderableFiles;
@@ -1087,6 +1264,12 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       }),
     [props.comments, props.reviewComments, selectedSource],
   );
+  const canSubmitInlineComment =
+    Boolean(props.onSubmitComment) &&
+    Boolean(selectedSource) &&
+    selectedTarget?.kind === "line" &&
+    inlineCommentBody.trim().length > 0 &&
+    !isSubmittingInlineComment;
 
   useEffect(() => {
     if (!defaultSource || !props.isGitRepo) {
@@ -1123,9 +1306,18 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
     }
   }, [allFilePaths, props.onSelectedFilePathChange, props.selectedFilePath]);
 
+  useEffect(() => {
+    if (localLineTarget && selectedFilePath !== localLineTarget.path) {
+      setLocalLineTarget(null);
+      setInlineCommentBody("");
+    }
+  }, [localLineTarget, selectedFilePath]);
+
   const selectFile = useCallback(
     (path: string) => {
       setLocalFolderTarget(null);
+      setLocalLineTarget(null);
+      setInlineCommentBody("");
       props.onSelectedFilePathChange(path);
     },
     [props.onSelectedFilePathChange],
@@ -1133,7 +1325,24 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
 
   const selectFolder = useCallback((path: string) => {
     setLocalFolderTarget({ kind: "folder", path });
+    setLocalLineTarget(null);
+    setInlineCommentBody("");
   }, []);
+
+  const selectLineTarget = useCallback(
+    (target: Extract<ReviewWorkspaceTarget, { readonly kind: "line" }>) => {
+      setLocalFolderTarget(null);
+      setLocalLineTarget(target);
+      setInlineCommentBody("");
+      props.onSelectedFilePathChange(target.path);
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLTextAreaElement>("[data-review-inline-comment-textarea='true']")
+          ?.focus();
+      });
+    },
+    [props.onSelectedFilePathChange],
+  );
 
   const toggleViewed = useCallback((path: string) => {
     setViewedFilePaths((current) => {
@@ -1143,6 +1352,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       } else {
         next.add(path);
       }
+      return next;
+    });
+  }, []);
+
+  const markViewed = useCallback((path: string) => {
+    setViewedFilePaths((current) => {
+      if (current.has(path)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(path);
       return next;
     });
   }, []);
@@ -1159,6 +1379,126 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
     });
   }, []);
 
+  const selectFileByOffset = useCallback(
+    (offset: number) => {
+      if (allFilePaths.length === 0) {
+        return;
+      }
+      const currentIndex = selectedFilePath ? allFilePaths.indexOf(selectedFilePath) : -1;
+      const fallbackIndex = offset > 0 ? -1 : allFilePaths.length;
+      const nextIndex = Math.min(
+        allFilePaths.length - 1,
+        Math.max(0, (currentIndex >= 0 ? currentIndex : fallbackIndex) + offset),
+      );
+      const nextPath = allFilePaths[nextIndex];
+      if (nextPath) {
+        selectFile(nextPath);
+      }
+    },
+    [allFilePaths, selectFile, selectedFilePath],
+  );
+
+  const runSubmitInlineComment = useCallback(() => {
+    if (
+      !props.onSubmitComment ||
+      !selectedSource ||
+      selectedTarget?.kind !== "line" ||
+      !canSubmitInlineComment
+    ) {
+      return;
+    }
+
+    setIsSubmittingInlineComment(true);
+    void Promise.resolve(
+      props.onSubmitComment({
+        sourceId: normalizeSourceId(selectedSource),
+        sourceKind: selectedSource.kind,
+        sourceTitle: selectedSource.title,
+        diffHash: selectedSource.diffHash,
+        baseRef: selectedSource.baseRef,
+        headRef: selectedSource.headRef,
+        target: selectedTarget,
+        body: inlineCommentBody.trim(),
+      }),
+    )
+      .then(() => {
+        setInlineCommentBody("");
+        setLocalLineTarget(null);
+      })
+      .catch((error: unknown) => {
+        console.warn("Failed to submit inline review comment.", error);
+      })
+      .finally(() => {
+        setIsSubmittingInlineComment(false);
+      });
+  }, [
+    canSubmitInlineComment,
+    inlineCommentBody,
+    props.onSubmitComment,
+    selectedSource,
+    selectedTarget,
+  ]);
+
+  const renderLineAnnotation = useCallback(
+    (annotation: DiffLineAnnotation<ReviewLineAnnotationMetadata>) => {
+      const metadata = annotation.metadata;
+      if (metadata.kind === "comment") {
+        return (
+          <div className="my-1 rounded-md border border-border/70 bg-muted/25 p-2 text-xs">
+            <div className="mb-1 truncate font-mono text-[11px] text-foreground">
+              {formatReviewTarget(metadata.comment)}
+            </div>
+            <div className="whitespace-pre-wrap wrap-break-word leading-5 text-muted-foreground">
+              {metadata.comment.body}
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="my-1 rounded-md border border-ring/35 bg-background p-2 shadow-sm">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <div className="truncate font-mono text-[11px] text-foreground">
+              {formatReviewTarget(metadata.target)}
+            </div>
+            <div className="shrink-0 text-[10px] uppercase tracking-wide text-muted-foreground">
+              Draft
+            </div>
+          </div>
+          <Textarea
+            size="sm"
+            value={metadata.body}
+            placeholder="Write a review comment"
+            data-review-inline-comment-textarea="true"
+            onChange={(event) => setInlineCommentBody(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                event.preventDefault();
+                runSubmitInlineComment();
+              }
+            }}
+          />
+          <div className="mt-2 flex justify-end">
+            <Button
+              type="button"
+              size="xs"
+              disabled={!metadata.canSubmit}
+              onClick={runSubmitInlineComment}
+            >
+              {metadata.isSubmitting ? (
+                <Loader2Icon className="size-3.5 animate-spin" />
+              ) : (
+                <MessageSquarePlusIcon className="size-3.5" />
+              )}
+              Add comment
+            </Button>
+          </div>
+        </div>
+      );
+    },
+    [runSubmitInlineComment],
+  );
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented || isEditableEventTarget(event.target)) {
@@ -1166,9 +1506,22 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       }
 
       const key = event.key.toLowerCase();
-      if (key === "v" && selectedTarget?.kind === "file") {
+      if (key === "v" && selectedTarget && selectedTarget.kind !== "folder") {
         event.preventDefault();
-        toggleViewed(selectedTarget.path);
+        markViewed(selectedTarget.path);
+        selectFileByOffset(1);
+        return;
+      }
+
+      if (event.shiftKey && key === "arrowdown") {
+        event.preventDefault();
+        selectFileByOffset(1);
+        return;
+      }
+
+      if (event.shiftKey && key === "arrowup") {
+        event.preventDefault();
+        selectFileByOffset(-1);
         return;
       }
 
@@ -1182,7 +1535,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [props.onSubmitComment, selectedSource, selectedTarget, toggleViewed]);
+  }, [markViewed, props.onSubmitComment, selectFileByOffset, selectedSource, selectedTarget]);
 
   const selectedSourceHasDiff = selectedSource ? hasDiffText(selectedSource) : false;
   const noGit = !props.isGitRepo || (preview.status === "success" && sources.length === 0);
@@ -1410,7 +1763,17 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                       const fileKey = buildFileDiffRenderKey(fileDiff);
                       const collapsed = collapsedFileKeys.has(fileKey);
                       const selected =
-                        selectedTarget?.kind === "file" && selectedTarget.path === filePath;
+                        (selectedTarget?.kind === "file" || selectedTarget?.kind === "line") &&
+                        selectedTarget.path === filePath;
+                      const lineAnnotations = buildLineAnnotationsForFile({
+                        filePath,
+                        comments: normalizedComments,
+                        selectedTarget,
+                        inlineCommentBody,
+                        canSubmitInlineComment,
+                        isSubmittingInlineComment,
+                      });
+                      const selectedLines = selectedLineRangeForFile(selectedTarget, filePath);
                       return (
                         <div
                           key={`${fileKey}:${props.resolvedTheme}`}
@@ -1422,6 +1785,9 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                         >
                           <FileDiff
                             fileDiff={fileDiff}
+                            lineAnnotations={lineAnnotations}
+                            selectedLines={selectedLines}
+                            renderAnnotation={renderLineAnnotation}
                             renderHeaderPrefix={() => (
                               <button
                                 type="button"
@@ -1446,10 +1812,33 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                                 )}
                               </button>
                             )}
+                            renderHeaderMetadata={() => (
+                              <Button
+                                type="button"
+                                size="xs"
+                                variant="ghost"
+                                disabled={!props.onSubmitComment}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  selectLineTarget(createFileTopTarget(filePath, fileDiff));
+                                }}
+                              >
+                                <MessageSquarePlusIcon className="size-3.5" />
+                                Top
+                              </Button>
+                            )}
                             options={{
                               collapsed,
                               diffStyle: diffRenderMode === "split" ? "split" : "unified",
+                              enableLineSelection: true,
+                              lineHoverHighlight: "line",
                               lineDiffType: "none",
+                              onLineClick: (line) => {
+                                selectLineTarget(createLineTarget(filePath, line));
+                              },
+                              onLineNumberClick: (line) => {
+                                selectLineTarget(createLineTarget(filePath, line));
+                              },
                               overflow: wordWrap ? "wrap" : "scroll",
                               theme: resolveDiffThemeName(props.resolvedTheme),
                               themeType: props.resolvedTheme as DiffThemeType,

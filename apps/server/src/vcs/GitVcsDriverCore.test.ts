@@ -128,6 +128,17 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.include(branchSource?.diff ?? "", "+untracked");
         assert.notInclude(workingTreeSource?.diff ?? "", "+committed");
         assert.include(workingTreeSource?.diff ?? "", "+local");
+
+        const previewWithInvalidBase =
+          yield* (yield* GitVcsDriver.GitVcsDriver).getReviewDiffPreview({
+            cwd,
+            baseRef: "HEAD",
+          });
+        const fallbackBranchSource = previewWithInvalidBase.sources.find(
+          (source) => source.kind === "branch-range",
+        );
+        assert.equal(fallbackBranchSource?.baseRef, initialBranch);
+        assert.include(fallbackBranchSource?.diff ?? "", "+committed");
       }),
     );
   });

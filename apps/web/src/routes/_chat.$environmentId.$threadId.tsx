@@ -283,13 +283,7 @@ export const Route = createFileRoute("/_chat/$environmentId/$threadId")({
   validateSearch: (search) => parseDiffRouteSearch(search),
   search: {
     middlewares: [
-      retainSearchParams<DiffRouteSearch>([
-        "diff",
-        "view",
-        "reviewSource",
-        "reviewBaseRef",
-        "reviewFilePath",
-      ]),
+      retainSearchParams<DiffRouteSearch>(["diff", "view", "reviewSource", "reviewFilePath"]),
     ],
   },
   component: ChatThreadRouteView,
