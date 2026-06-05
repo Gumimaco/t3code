@@ -2682,6 +2682,12 @@ export default function ChatView(props: ChatViewProps) {
     },
     [setReviewComments],
   );
+  const onResolveReviewComment = useCallback(
+    (commentId: string) => {
+      setReviewComments((current) => current.filter((comment) => comment.id !== commentId));
+    },
+    [setReviewComments],
+  );
 
   useEffect(() => {
     setPullRequestDialogState(null);
@@ -4064,6 +4070,7 @@ export default function ChatView(props: ChatViewProps) {
                 onSelectedFilePathChange={onReviewFilePathChange}
                 comments={reviewComments}
                 onSubmitComment={onSubmitReviewComment}
+                onResolveComment={onResolveReviewComment}
                 onRunReviewPrompt={onRunReviewPrompt}
                 isRunDisabled={isWorking || activeEnvironmentUnavailable}
               />

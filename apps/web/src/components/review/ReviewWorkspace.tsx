@@ -131,6 +131,7 @@ export interface ReviewWorkspaceProps {
   readonly onSubmitComment?:
     | ((draft: ReviewWorkspaceCommentDraft) => void | Promise<void>)
     | undefined;
+  readonly onResolveComment?: ((commentId: string) => void | Promise<void>) | undefined;
   readonly onFixSelected?:
     | ((request: ReviewWorkspaceFixRequest) => void | Promise<void>)
     | undefined;
@@ -954,6 +955,7 @@ function ReviewCommentsPanel(props: {
   readonly onSubmitComment?:
     | ((draft: ReviewWorkspaceCommentDraft) => void | Promise<void>)
     | undefined;
+  readonly onResolveComment?: ((commentId: string) => void | Promise<void>) | undefined;
   readonly onFixSelected?:
     | ((request: ReviewWorkspaceFixRequest) => void | Promise<void>)
     | undefined;
@@ -1081,6 +1083,17 @@ function ReviewCommentsPanel(props: {
     },
     [props.onRunReviewPrompt, selectedSource],
   );
+  const runResolveComment = useCallback(
+    (commentId: string) => {
+      if (!props.onResolveComment) {
+        return;
+      }
+      void Promise.resolve(props.onResolveComment(commentId)).catch((error: unknown) => {
+        console.warn("Failed to resolve review comment.", error);
+      });
+    },
+    [props.onResolveComment],
+  );
 
   return (
     <aside className="flex min-h-0 flex-col border-l border-border/70 bg-background">
@@ -1190,6 +1203,7 @@ function ReviewCommentsPanel(props: {
           comments={lineComments}
           selectedSource={selectedSource}
           onFixComment={props.onRunReviewPrompt ? runFixComment : undefined}
+          onResolveComment={props.onResolveComment ? runResolveComment : undefined}
           commentFixPendingId={commentFixPendingId}
           commentFixDisabled={fixPending !== null || props.isRunDisabled === true}
         />
@@ -1198,6 +1212,7 @@ function ReviewCommentsPanel(props: {
           comments={fileComments}
           selectedSource={selectedSource}
           onFixComment={props.onRunReviewPrompt ? runFixComment : undefined}
+          onResolveComment={props.onResolveComment ? runResolveComment : undefined}
           commentFixPendingId={commentFixPendingId}
           commentFixDisabled={fixPending !== null || props.isRunDisabled === true}
         />
@@ -1206,6 +1221,7 @@ function ReviewCommentsPanel(props: {
           comments={folderComments}
           selectedSource={selectedSource}
           onFixComment={props.onRunReviewPrompt ? runFixComment : undefined}
+          onResolveComment={props.onResolveComment ? runResolveComment : undefined}
           commentFixPendingId={commentFixPendingId}
           commentFixDisabled={fixPending !== null || props.isRunDisabled === true}
         />
@@ -1219,11 +1235,12 @@ function CommentGroup(props: {
   readonly comments: ReadonlyArray<NormalizedReviewComment>;
   readonly selectedSource: ReviewDiffPreviewSource | null;
   readonly onFixComment?: ((comment: NormalizedReviewComment) => void) | undefined;
+  readonly onResolveComment?: ((commentId: string) => void) | undefined;
   readonly commentFixPendingId: string | null;
   readonly commentFixDisabled: boolean;
 }) {
   return (
-    <div className="space-y-2">
+    <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           {props.title}
@@ -1233,20 +1250,39 @@ function CommentGroup(props: {
         </div>
       </div>
       {props.comments.length === 0 ? (
-        <div className="rounded-md border border-dashed border-border/70 px-3 py-4 text-center text-[11px] text-muted-foreground">
+        <div className="rounded-md border border-dashed border-border/70 px-2 py-2 text-center text-[11px] text-muted-foreground">
           No comments yet.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="overflow-hidden rounded-md border border-border/70 bg-background">
           {props.comments.map((comment) => (
             <div
               key={comment.id}
-              className="space-y-1 rounded-md border border-border/70 bg-muted/25 p-2"
+              className="group flex min-h-8 min-w-0 items-center gap-2 border-border/70 border-b px-2 py-1.5 last:border-b-0 hover:bg-muted/35"
             >
-              <div className="flex min-w-0 items-start justify-between gap-2">
-                <div className="min-w-0 truncate font-mono text-[11px] text-foreground">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div
+                  className="max-w-28 shrink-0 truncate font-mono text-[10px] text-foreground"
+                  title={formatReviewTarget(comment)}
+                >
                   {formatReviewTarget(comment)}
                 </div>
+                {comment.meta ? (
+                  <div
+                    className="max-w-16 shrink-0 truncate text-[10px] text-muted-foreground/70"
+                    title={comment.meta}
+                  >
+                    {comment.meta}
+                  </div>
+                ) : null}
+                <div
+                  className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                  title={comment.body || "No comment text."}
+                >
+                  {comment.body || "No comment text."}
+                </div>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
                 {props.onFixComment ? (
                   <Button
                     type="button"
@@ -1268,12 +1304,20 @@ function CommentGroup(props: {
                     Fix
                   </Button>
                 ) : null}
-              </div>
-              {comment.meta ? (
-                <div className="truncate text-[10px] text-muted-foreground">{comment.meta}</div>
-              ) : null}
-              <div className="whitespace-pre-wrap wrap-break-word text-xs leading-5 text-muted-foreground">
-                {comment.body || "No comment text."}
+                {props.onResolveComment ? (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="ghost"
+                    className="h-6 shrink-0 px-2 text-[10px] text-muted-foreground hover:text-foreground"
+                    aria-label={`Resolve comment for ${formatReviewTarget(comment)}`}
+                    title="Resolve comment"
+                    onClick={() => props.onResolveComment?.(comment.id)}
+                  >
+                    <CheckIcon className="size-3" />
+                    Resolve
+                  </Button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -2043,6 +2087,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
             onFixSelected={props.onFixSelected}
             onFixAll={props.onFixAll}
             onRunReviewPrompt={props.onRunReviewPrompt}
+            onResolveComment={props.onResolveComment}
             isRunDisabled={props.isRunDisabled}
           />
         </div>
