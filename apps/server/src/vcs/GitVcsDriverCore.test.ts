@@ -100,6 +100,36 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         assert.deepStrictEqual(paths, ["complete.txt", "final.txt"]);
       }),
     );
+
+    it.effect("builds the branch range from the merge-base to the current worktree", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        const { initialBranch } = yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["checkout", "-b", "feature/review"]);
+        yield* writeTextFile(cwd, "committed.txt", "committed\n");
+        yield* git(cwd, ["add", "committed.txt"]);
+        yield* git(cwd, ["commit", "-m", "feature commit"]);
+        yield* writeTextFile(cwd, "committed.txt", "committed\nlocal\n");
+        yield* writeTextFile(cwd, "untracked.txt", "untracked\n");
+
+        const preview = yield* (yield* GitVcsDriver.GitVcsDriver).getReviewDiffPreview({
+          cwd,
+          baseRef: initialBranch,
+        });
+        const branchSource = preview.sources.find((source) => source.kind === "branch-range");
+        const workingTreeSource = preview.sources.find((source) => source.kind === "working-tree");
+
+        assert.notEqual(branchSource, undefined);
+        assert.notEqual(workingTreeSource, undefined);
+        assert.include(branchSource?.diff ?? "", "committed.txt");
+        assert.include(branchSource?.diff ?? "", "+committed");
+        assert.include(branchSource?.diff ?? "", "+local");
+        assert.include(branchSource?.diff ?? "", "untracked.txt");
+        assert.include(branchSource?.diff ?? "", "+untracked");
+        assert.notInclude(workingTreeSource?.diff ?? "", "+committed");
+        assert.include(workingTreeSource?.diff ?? "", "+local");
+      }),
+    );
   });
 
   describe("repository status", () => {

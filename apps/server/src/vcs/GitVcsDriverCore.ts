@@ -1740,27 +1740,39 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       .filter((diff) => diff.length > 0)
       .join("\n");
 
-    const baseResult =
-      baseRef && branch
-        ? yield* executeGit(
-            "GitVcsDriver.getReviewDiffPreview.base",
-            input.cwd,
-            ["diff", "--patch", "--minimal", `${baseRef}...HEAD`],
-            {
-              maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
-              appendTruncationMarker: true,
-            },
-          ).pipe(
-            Effect.orElseSucceed(() => ({
-              exitCode: 0,
-              stdout: "",
-              stderr: "",
-              stdoutTruncated: false,
-              stderrTruncated: false,
-            })),
-          )
-        : null;
-    const baseDiff = baseResult?.stdout ?? "";
+    const baseMergeBase = baseRef
+      ? yield* runGitStdout("GitVcsDriver.getReviewDiffPreview.mergeBase", input.cwd, [
+          "merge-base",
+          baseRef,
+          "HEAD",
+        ]).pipe(
+          Effect.map((stdout) => stdout.trim()),
+          Effect.map((stdout) => (stdout.length > 0 ? stdout : null)),
+          Effect.orElseSucceed(() => null),
+        )
+      : null;
+    const baseResult = baseMergeBase
+      ? yield* executeGit(
+          "GitVcsDriver.getReviewDiffPreview.base",
+          input.cwd,
+          ["diff", "--patch", "--minimal", baseMergeBase, "--"],
+          {
+            maxOutputBytes: REVIEW_DIFF_PATCH_MAX_OUTPUT_BYTES,
+            appendTruncationMarker: true,
+          },
+        ).pipe(
+          Effect.orElseSucceed(() => ({
+            exitCode: 0,
+            stdout: "",
+            stderr: "",
+            stdoutTruncated: false,
+            stderrTruncated: false,
+          })),
+        )
+      : null;
+    const baseDiff = [baseResult?.stdout.trimEnd() ?? "", dirtyUntracked.diff.trimEnd()]
+      .filter((diff) => diff.length > 0)
+      .join("\n");
     const hashDiff = (diff: string) =>
       crypto.digest("SHA-256", new TextEncoder().encode(diff)).pipe(
         Effect.map(Encoding.encodeHex),
@@ -1799,7 +1811,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         headRef: branch ?? "HEAD",
         diff: baseDiff,
         diffHash: baseDiffHash,
-        truncated: baseResult?.stdoutTruncated ?? false,
+        truncated: (baseResult?.stdoutTruncated ?? false) || dirtyUntracked.truncated,
       },
     ];
 

@@ -287,6 +287,30 @@ function normalizePathSegments(pathValue: string): string[] {
     .filter((segment) => segment.length > 0);
 }
 
+function normalizeReviewPath(pathValue: string): string {
+  return normalizePathSegments(pathValue).join("/");
+}
+
+function pathBelongsToDirectory(filePath: string, directoryPath: string): boolean {
+  const normalizedFilePath = normalizeReviewPath(filePath);
+  const normalizedDirectoryPath = normalizeReviewPath(directoryPath);
+  return (
+    normalizedDirectoryPath.length === 0 ||
+    normalizedFilePath === normalizedDirectoryPath ||
+    normalizedFilePath.startsWith(`${normalizedDirectoryPath}/`)
+  );
+}
+
+function isEditableEventTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  if (target.isContentEditable) {
+    return true;
+  }
+  return Boolean(target.closest("input, textarea, select, [contenteditable='true']"));
+}
+
 function compareByName(left: { name: string }, right: { name: string }): number {
   return left.name.localeCompare(right.name, undefined, {
     numeric: true,
@@ -690,12 +714,15 @@ function ReviewFileTree(props: {
               </span>
             </button>
           </div>
-          {expanded ? <div>{node.children.map((child) => renderNode(child, depth + 1))}</div> : null}
+          {expanded ? (
+            <div>{node.children.map((child) => renderNode(child, depth + 1))}</div>
+          ) : null}
         </div>
       );
     }
 
-    const selected = props.selectedTarget?.kind === "file" && props.selectedTarget.path === node.path;
+    const selected =
+      props.selectedTarget?.kind === "file" && props.selectedTarget.path === node.path;
     const viewed = props.viewedFilePaths.has(node.path);
     return (
       <div key={`file:${node.path}`} className="flex min-w-0 items-center gap-1">
@@ -883,9 +910,7 @@ function ReviewCommentsPanel(props: {
                   type="button"
                   size="xs"
                   variant="outline"
-                  disabled={
-                    !selectedSource || fixPending !== null || props.isRunDisabled === true
-                  }
+                  disabled={!selectedSource || fixPending !== null || props.isRunDisabled === true}
                   onClick={() => runFix("all")}
                 >
                   {fixPending === "all" ? (
@@ -909,6 +934,7 @@ function ReviewCommentsPanel(props: {
               size="sm"
               value={commentBody}
               placeholder="Leave a review comment"
+              data-review-comment-textarea="true"
               onChange={(event) => setCommentBody(event.currentTarget.value)}
             />
             <Button
@@ -988,7 +1014,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
   const [wordWrap, setWordWrap] = useState(true);
   const [collapsedFileKeys, setCollapsedFileKeys] = useState<ReadonlySet<string>>(() => new Set());
   const [viewedFilePaths, setViewedFilePaths] = useState<ReadonlySet<string>>(() => new Set());
-  const patchViewportRef = useRef<HTMLDivElement>(null);
 
   const sources = useMemo(() => sortSources(preview.data?.sources ?? []), [preview.data?.sources]);
   const defaultSource = useMemo(() => getDefaultSource(sources), [sources]);
@@ -1040,6 +1065,19 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       : selectedFilePath
         ? ({ kind: "file", path: selectedFilePath } satisfies ReviewWorkspaceTarget)
         : null;
+  const displayedFiles = useMemo(() => {
+    if (!selectedTarget) {
+      return renderableFiles;
+    }
+    if (selectedTarget.kind === "file") {
+      return renderableFiles.filter(
+        (fileDiff) => resolveFileDiffPath(fileDiff) === selectedTarget.path,
+      );
+    }
+    return renderableFiles.filter((fileDiff) =>
+      pathBelongsToDirectory(resolveFileDiffPath(fileDiff), selectedTarget.path),
+    );
+  }, [renderableFiles, selectedTarget]);
   const normalizedComments = useMemo(
     () =>
       normalizeWorkspaceComments({
@@ -1060,13 +1098,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
     if (!selectedRouteSourceExists) {
       props.onSelectedSourceChange(defaultSource.kind, defaultSource.baseRef);
     }
-  }, [
-    defaultSource,
-    props.isGitRepo,
-    props.onSelectedSourceChange,
-    props.selectedSource,
-    sources,
-  ]);
+  }, [defaultSource, props.isGitRepo, props.onSelectedSourceChange, props.selectedSource, sources]);
 
   useEffect(() => {
     setCollapsedFileKeys((current) => {
@@ -1090,16 +1122,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       props.onSelectedFilePathChange(undefined);
     }
   }, [allFilePaths, props.onSelectedFilePathChange, props.selectedFilePath]);
-
-  useEffect(() => {
-    if (!selectedFilePath || !patchViewportRef.current) {
-      return;
-    }
-    const target = Array.from(
-      patchViewportRef.current.querySelectorAll<HTMLElement>("[data-review-diff-file-path]"),
-    ).find((element) => element.dataset.reviewDiffFilePath === selectedFilePath);
-    target?.scrollIntoView({ block: "nearest" });
-  }, [selectedFilePath, renderableFiles]);
 
   const selectFile = useCallback(
     (path: string) => {
@@ -1136,6 +1158,31 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
       return next;
     });
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || isEditableEventTarget(event.target)) {
+        return;
+      }
+
+      const key = event.key.toLowerCase();
+      if (key === "v" && selectedTarget?.kind === "file") {
+        event.preventDefault();
+        toggleViewed(selectedTarget.path);
+        return;
+      }
+
+      if (key === "w" && props.onSubmitComment && selectedSource && selectedTarget) {
+        event.preventDefault();
+        document
+          .querySelector<HTMLTextAreaElement>("[data-review-comment-textarea='true']")
+          ?.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [props.onSubmitComment, selectedSource, selectedTarget, toggleViewed]);
 
   const selectedSourceHasDiff = selectedSource ? hasDiffText(selectedSource) : false;
   const noGit = !props.isGitRepo || (preview.status === "success" && sources.length === 0);
@@ -1333,7 +1380,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
               </div>
             ) : null}
 
-            <div ref={patchViewportRef} className="min-h-0 min-w-0 flex-1 overflow-hidden">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
               {!selectedSource ? (
                 <ReviewWorkspaceEmptyState
                   title="No diff source selected"
@@ -1344,6 +1391,11 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                   title="No changes in this source"
                   description={`${sourceTitle(selectedSource)} does not contain diffable changes.`}
                 />
+              ) : renderablePatch?.kind === "files" && displayedFiles.length === 0 ? (
+                <ReviewWorkspaceEmptyState
+                  title="No files for this selection"
+                  description="Choose a different file or folder from the review tree."
+                />
               ) : renderablePatch?.kind === "files" ? (
                 <DiffWorkerPoolProvider>
                   <Virtualizer
@@ -1353,7 +1405,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                       intersectionObserverMargin: 1200,
                     }}
                   >
-                    {renderableFiles.map((fileDiff) => {
+                    {displayedFiles.map((fileDiff) => {
                       const filePath = resolveFileDiffPath(fileDiff);
                       const fileKey = buildFileDiffRenderKey(fileDiff);
                       const collapsed = collapsedFileKeys.has(fileKey);

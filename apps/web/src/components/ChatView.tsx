@@ -21,6 +21,7 @@ import {
   RuntimeMode,
   TerminalOpenInput,
 } from "@t3tools/contracts";
+import * as Schema from "effect/Schema";
 import {
   parseScopedThreadKey,
   scopedThreadKey,
@@ -155,7 +156,11 @@ import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
-import { ReviewWorkspace } from "./review/ReviewWorkspace";
+import {
+  ReviewWorkspace,
+  type ReviewWorkspaceComment,
+  type ReviewWorkspaceCommentDraft,
+} from "./review/ReviewWorkspace";
 import { NoActiveThreadState } from "./NoActiveThreadState";
 import { resolveEffectiveEnvMode, resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { ProviderStatusBanner } from "./chat/ProviderStatusBanner";
@@ -203,6 +208,16 @@ import {
 
 const IMAGE_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more images without additional text. Respond using the conversation context and the attached image(s).]";
+const ReviewWorkspaceCommentSchema = Schema.Struct({
+  id: Schema.String,
+  targetKind: Schema.Literals(["file", "folder"]),
+  path: Schema.String,
+  body: Schema.String,
+  sourceId: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  authorLabel: Schema.optionalKey(Schema.NullOr(Schema.String)),
+});
+const ReviewWorkspaceCommentsSchema = Schema.Array(ReviewWorkspaceCommentSchema);
+const EMPTY_REVIEW_COMMENTS: ReviewWorkspaceComment[] = [];
 const EMPTY_ACTIVITIES: OrchestrationThreadActivity[] = [];
 const EMPTY_PROPOSED_PLANS: Thread["proposedPlans"] = [];
 const EMPTY_PROVIDERS: ServerProvider[] = [];
@@ -892,6 +907,11 @@ export default function ChatView(props: ChatViewProps) {
     LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
     {},
     LastInvokedScriptByProjectSchema,
+  );
+  const [reviewComments, setReviewComments] = useLocalStorage(
+    `t3code:review-comments:v1:${routeThreadKey}`,
+    EMPTY_REVIEW_COMMENTS,
+    ReviewWorkspaceCommentsSchema,
   );
   const legendListRef = useRef<LegendListRef | null>(null);
   const isAtEndRef = useRef(true);
@@ -2616,6 +2636,28 @@ export default function ChatView(props: ChatViewProps) {
     ],
   );
 
+  const onSubmitReviewComment = useCallback(
+    (draft: ReviewWorkspaceCommentDraft) => {
+      const body = draft.body.trim();
+      if (body.length === 0) {
+        return;
+      }
+
+      setReviewComments((current) => [
+        ...current,
+        {
+          id: `review-comment:${Date.now().toString(36)}:${randomHex(4)}`,
+          targetKind: draft.target.kind,
+          path: draft.target.path,
+          body,
+          sourceId: draft.sourceId,
+          authorLabel: draft.sourceTitle,
+        },
+      ]);
+    },
+    [setReviewComments],
+  );
+
   useEffect(() => {
     setPullRequestDialogState(null);
     isAtEndRef.current = true;
@@ -3997,6 +4039,8 @@ export default function ChatView(props: ChatViewProps) {
                 selectedFilePath={rawSearch.reviewFilePath}
                 onSelectedSourceChange={onReviewSourceChange}
                 onSelectedFilePathChange={onReviewFilePathChange}
+                comments={reviewComments}
+                onSubmitComment={onSubmitReviewComment}
                 onRunReviewPrompt={onRunReviewPrompt}
                 isRunDisabled={isWorking || activeEnvironmentUnavailable}
               />
