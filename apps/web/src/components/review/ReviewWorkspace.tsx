@@ -1258,31 +1258,33 @@ function CommentGroup(props: {
           {props.comments.map((comment) => (
             <div
               key={comment.id}
-              className="group flex min-h-8 min-w-0 items-center gap-2 border-border/70 border-b px-2 py-1.5 last:border-b-0 hover:bg-muted/35"
+              className="group min-w-0 space-y-1.5 border-border/70 border-b px-2 py-1.5 last:border-b-0 hover:bg-muted/35"
             >
-              <div className="flex min-w-0 flex-1 items-center gap-2">
-                <div
-                  className="max-w-28 shrink-0 truncate font-mono text-[10px] text-foreground"
-                  title={formatReviewTarget(comment)}
-                >
-                  {formatReviewTarget(comment)}
-                </div>
-                {comment.meta ? (
+              <div className="min-w-0 space-y-0.5">
+                <div className="flex min-w-0 items-center gap-2">
                   <div
-                    className="max-w-16 shrink-0 truncate text-[10px] text-muted-foreground/70"
-                    title={comment.meta}
+                    className="shrink-0 truncate font-mono text-[10px] text-foreground"
+                    title={formatReviewTarget(comment)}
                   >
-                    {comment.meta}
+                    {formatReviewTarget(comment)}
                   </div>
-                ) : null}
+                  {comment.meta ? (
+                    <div
+                      className="min-w-0 truncate text-[10px] text-muted-foreground/70"
+                      title={comment.meta}
+                    >
+                      {comment.meta}
+                    </div>
+                  ) : null}
+                </div>
                 <div
-                  className="min-w-0 flex-1 truncate text-xs text-muted-foreground"
+                  className="truncate text-xs text-muted-foreground"
                   title={comment.body || "No comment text."}
                 >
                   {comment.body || "No comment text."}
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-1">
+              <div className="flex justify-end gap-1">
                 {props.onFixComment ? (
                   <Button
                     type="button"
