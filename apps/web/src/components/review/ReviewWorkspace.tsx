@@ -19,7 +19,6 @@ import {
   Columns2Icon,
   EyeIcon,
   EyeOffIcon,
-  FileIcon,
   FolderClosedIcon,
   FolderIcon,
   GitBranchIcon,
@@ -46,6 +45,7 @@ import type { ReviewCommentContext } from "~/reviewCommentContext";
 
 import type { ReviewRouteSource } from "../../diffRouteSearch";
 import { DiffWorkerPoolProvider } from "../DiffWorkerPoolProvider";
+import { VscodeEntryIcon } from "../chat/VscodeEntryIcon";
 import { Button } from "../ui/button";
 import { Spinner } from "../ui/spinner";
 import { Textarea } from "../ui/textarea";
@@ -845,6 +845,7 @@ function DiffStatText({ stat }: { readonly stat: ReviewDiffStat }) {
 function ReviewFileTree(props: {
   readonly nodes: ReadonlyArray<ReviewTreeNode>;
   readonly selectedTarget: ReviewWorkspaceTarget | null;
+  readonly resolvedTheme: "light" | "dark";
   readonly viewedFilePaths: ReadonlySet<string>;
   readonly onSelectFile: (path: string) => void;
   readonly onSelectFolder: (path: string) => void;
@@ -933,32 +934,41 @@ function ReviewFileTree(props: {
       props.selectedTarget.path === node.path;
     const viewed = props.viewedFilePaths.has(node.path);
     return (
-      <div key={`file:${node.path}`} className="flex min-w-0 items-center gap-1">
+      <div
+        key={`file:${node.path}`}
+        className={cn(
+          "group flex min-w-0 items-center gap-1.5 rounded-md py-1 pr-2 hover:bg-muted/70",
+          selected && "bg-muted text-foreground",
+        )}
+        style={{ paddingLeft }}
+      >
+        <span aria-hidden="true" className="size-4 shrink-0" />
+        <VscodeEntryIcon
+          pathValue={node.path}
+          kind="file"
+          theme={props.resolvedTheme}
+          className="size-3.5"
+        />
         <button
           type="button"
-          className={cn(
-            "group flex min-w-0 flex-1 items-center gap-1.5 rounded-md py-1 pr-2 text-left hover:bg-muted/70",
-            selected && "bg-muted text-foreground",
-          )}
-          style={{ paddingLeft }}
+          className="min-w-0 flex-1 text-left"
           title={node.path}
           onClick={() => props.onSelectFile(node.path)}
         >
-          <span aria-hidden="true" className="size-4 shrink-0" />
-          <FileIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-          <span className="min-w-0 truncate font-mono text-xs font-semibold text-foreground/90 group-hover:text-foreground">
+          <span className="block min-w-0 truncate font-mono text-xs font-semibold text-foreground/90 group-hover:text-foreground">
             {node.name}
           </span>
-          <span className="ml-auto shrink-0">
-            <DiffStatText stat={node.stat} />
-          </span>
         </button>
+        <span className="shrink-0">
+          <DiffStatText stat={node.stat} />
+        </span>
         <button
           type="button"
           className={cn(
-            "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 hover:bg-muted hover:text-foreground",
-            viewed && "text-foreground",
+            "inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/35 hover:text-muted-foreground",
+            viewed && "text-muted-foreground/70",
           )}
+          aria-pressed={viewed}
           aria-label={viewed ? `Mark ${node.path} unviewed` : `Mark ${node.path} viewed`}
           title={viewed ? "Mark unviewed" : "Mark viewed"}
           onClick={() => props.onToggleViewed(node.path)}
@@ -1930,6 +1940,7 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                 <ReviewFileTree
                   nodes={treeNodes}
                   selectedTarget={selectedTarget}
+                  resolvedTheme={props.resolvedTheme}
                   viewedFilePaths={viewedFilePaths}
                   onSelectFile={selectFile}
                   onSelectFolder={selectFolder}
