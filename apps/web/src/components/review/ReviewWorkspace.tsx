@@ -215,15 +215,37 @@ const REVIEW_DIFF_UNSAFE_CSS = `
   --diffs-bg-buffer-override: var(--background);
   --diffs-addition-base: rgb(36 138 61);
   --diffs-deletion-base: rgb(207 34 46);
-  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 92%, rgb(36 138 61));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 90%, rgb(36 138 61));
-  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 88%, rgb(36 138 61));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 82%, rgb(36 138 61));
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 92%, rgb(207 34 46));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 90%, rgb(207 34 46));
-  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 88%, rgb(207 34 46));
-  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 82%, rgb(207 34 46));
+  --revex-diff-addition-row-bg: color-mix(in srgb, var(--background) 88%, rgb(36 138 61));
+  --revex-diff-addition-row-hover-bg: color-mix(in srgb, var(--background) 84%, rgb(36 138 61));
+  --revex-diff-deletion-row-bg: color-mix(in srgb, var(--background) 88%, rgb(207 34 46));
+  --revex-diff-deletion-row-hover-bg: color-mix(in srgb, var(--background) 84%, rgb(207 34 46));
+  --diffs-bg-addition-override: rgb(36 138 61);
+  --diffs-bg-addition-number-override: rgb(36 138 61);
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 78%, rgb(36 138 61));
+  --diffs-bg-deletion-override: rgb(207 34 46);
+  --diffs-bg-deletion-number-override: rgb(207 34 46);
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 78%, rgb(207 34 46));
   background-color: var(--diffs-bg) !important;
+}
+
+[data-line-type="change-addition"]:is([data-line], [data-column-number], [data-gutter-buffer], [data-no-newline]) {
+  --diffs-line-bg: var(--revex-diff-addition-row-bg) !important;
+  background-color: var(--revex-diff-addition-row-bg) !important;
+}
+
+[data-line-type="change-deletion"]:is([data-line], [data-column-number], [data-gutter-buffer], [data-no-newline]) {
+  --diffs-line-bg: var(--revex-diff-deletion-row-bg) !important;
+  background-color: var(--revex-diff-deletion-row-bg) !important;
+}
+
+[data-line-type="change-addition"][data-hovered]:is([data-line], [data-column-number], [data-gutter-buffer], [data-no-newline]) {
+  --diffs-line-bg: var(--revex-diff-addition-row-hover-bg) !important;
+  background-color: var(--revex-diff-addition-row-hover-bg) !important;
+}
+
+[data-line-type="change-deletion"][data-hovered]:is([data-line], [data-column-number], [data-gutter-buffer], [data-no-newline]) {
+  --diffs-line-bg: var(--revex-diff-deletion-row-hover-bg) !important;
+  background-color: var(--revex-diff-deletion-row-hover-bg) !important;
 }
 
 [data-file-info],
