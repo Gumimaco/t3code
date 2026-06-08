@@ -17,8 +17,6 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   Columns2Icon,
-  EyeIcon,
-  EyeOffIcon,
   FolderClosedIcon,
   FolderIcon,
   GitBranchIcon,
@@ -849,7 +847,6 @@ function ReviewFileTree(props: {
   readonly viewedFilePaths: ReadonlySet<string>;
   readonly onSelectFile: (path: string) => void;
   readonly onSelectFolder: (path: string) => void;
-  readonly onToggleViewed: (path: string) => void;
 }) {
   const directoryPaths = useMemo(() => collectDirectoryPaths(props.nodes), [props.nodes]);
   const expansionKey = directoryPaths.join("\u0000");
@@ -947,34 +944,28 @@ function ReviewFileTree(props: {
           pathValue={node.path}
           kind="file"
           theme={props.resolvedTheme}
-          className="size-3.5"
+          className={cn("size-3.5", viewed && "opacity-45 grayscale")}
         />
         <button
           type="button"
           className="min-w-0 flex-1 text-left"
-          title={node.path}
+          title={`${node.path}${viewed ? " (viewed)" : ""}`}
           onClick={() => props.onSelectFile(node.path)}
         >
-          <span className="block min-w-0 truncate font-mono text-xs font-semibold text-foreground/90 group-hover:text-foreground">
+          <span
+            className={cn(
+              "block min-w-0 truncate font-mono text-xs font-semibold",
+              viewed
+                ? "text-muted-foreground/50 group-hover:text-muted-foreground/80"
+                : "text-foreground/90 group-hover:text-foreground",
+            )}
+          >
             {node.name}
           </span>
         </button>
         <span className="shrink-0">
           <DiffStatText stat={node.stat} />
         </span>
-        <button
-          type="button"
-          className={cn(
-            "inline-flex size-4 shrink-0 items-center justify-center text-muted-foreground/35 hover:text-muted-foreground",
-            viewed && "text-muted-foreground/70",
-          )}
-          aria-pressed={viewed}
-          aria-label={viewed ? `Mark ${node.path} unviewed` : `Mark ${node.path} viewed`}
-          title={viewed ? "Mark unviewed" : "Mark viewed"}
-          onClick={() => props.onToggleViewed(node.path)}
-        >
-          {viewed ? <EyeIcon className="size-3.5" /> : <EyeOffIcon className="size-3.5" />}
-        </button>
       </div>
     );
   };
@@ -1944,7 +1935,6 @@ export const ReviewWorkspace = memo(function ReviewWorkspace(props: ReviewWorksp
                   viewedFilePaths={viewedFilePaths}
                   onSelectFile={selectFile}
                   onSelectFolder={selectFolder}
-                  onToggleViewed={toggleViewed}
                 />
               ) : (
                 <div className="px-2 py-8 text-center text-xs text-muted-foreground">
