@@ -204,31 +204,31 @@ const REVIEW_DIFF_UNSAFE_CSS = `
 [data-file],
 [data-error-wrapper],
 [data-virtualizer-buffer] {
-  --diffs-bg: color-mix(in srgb, var(--background) 96%, var(--foreground)) !important;
-  --diffs-light-bg: color-mix(in srgb, var(--background) 96%, var(--foreground)) !important;
-  --diffs-dark-bg: color-mix(in srgb, var(--background) 96%, var(--foreground)) !important;
+  --diffs-bg: var(--background) !important;
+  --diffs-light-bg: var(--background) !important;
+  --diffs-dark-bg: var(--background) !important;
   --diffs-token-light-bg: transparent;
   --diffs-token-dark-bg: transparent;
   --diffs-bg-context-override: var(--background);
-  --diffs-bg-hover-override: color-mix(in srgb, var(--background) 94%, var(--foreground));
-  --diffs-bg-separator-override: color-mix(in srgb, var(--background) 95%, var(--foreground));
-  --diffs-bg-buffer-override: color-mix(in srgb, var(--background) 90%, var(--foreground));
+  --diffs-bg-hover-override: color-mix(in srgb, var(--background) 97%, var(--foreground));
+  --diffs-bg-separator-override: color-mix(in srgb, var(--background) 96%, var(--foreground));
+  --diffs-bg-buffer-override: var(--background);
   --diffs-addition-base: rgb(36 138 61);
   --diffs-deletion-base: rgb(207 34 46);
-  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 96%, rgb(36 138 61));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 94%, rgb(36 138 61));
-  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 93%, rgb(36 138 61));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 88%, rgb(36 138 61));
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 96%, rgb(207 34 46));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 94%, rgb(207 34 46));
-  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 93%, rgb(207 34 46));
-  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 88%, rgb(207 34 46));
+  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 92%, rgb(36 138 61));
+  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 90%, rgb(36 138 61));
+  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 88%, rgb(36 138 61));
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 82%, rgb(36 138 61));
+  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 92%, rgb(207 34 46));
+  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 90%, rgb(207 34 46));
+  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 88%, rgb(207 34 46));
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 82%, rgb(207 34 46));
   background-color: var(--diffs-bg) !important;
 }
 
 [data-file-info],
 [data-diffs-header] {
-  background-color: color-mix(in srgb, var(--background) 94%, var(--foreground)) !important;
+  background-color: var(--background) !important;
   border-color: var(--border) !important;
   color: var(--foreground) !important;
 }
