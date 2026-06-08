@@ -180,16 +180,16 @@ export const ChatHeader = memo(function ChatHeader({
                 aria-label="Toggle review mode"
                 variant="outline"
                 size="xs"
-                disabled={!reviewAvailable || (!isGitRepo && !reviewOpen)}
+                disabled={!reviewOpen && (!reviewAvailable || !isGitRepo)}
               >
                 <GitPullRequestIcon className="size-3" />
               </Toggle>
             }
           />
           <TooltipPopup side="bottom">
-            {!reviewAvailable
-              ? "Review mode is unavailable until this thread is saved."
-              : !isGitRepo && !reviewOpen
+            {!reviewOpen && !reviewAvailable
+              ? "Review mode is unavailable until this thread has an active project."
+              : !reviewOpen && !isGitRepo
                 ? "Review mode is unavailable because this project is not a git repository."
                 : reviewToggleShortcutLabel
                   ? `Toggle review mode (${reviewToggleShortcutLabel})`

@@ -213,14 +213,16 @@ const REVIEW_DIFF_UNSAFE_CSS = `
   --diffs-bg-hover-override: color-mix(in srgb, var(--background) 94%, var(--foreground));
   --diffs-bg-separator-override: color-mix(in srgb, var(--background) 95%, var(--foreground));
   --diffs-bg-buffer-override: color-mix(in srgb, var(--background) 90%, var(--foreground));
-  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 91%, var(--success));
-  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 86%, var(--success));
-  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 84%, var(--success));
-  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 78%, var(--success));
-  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 91%, var(--destructive));
-  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 86%, var(--destructive));
-  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 84%, var(--destructive));
-  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 78%, var(--destructive));
+  --diffs-addition-base: rgb(36 138 61);
+  --diffs-deletion-base: rgb(207 34 46);
+  --diffs-bg-addition-override: color-mix(in srgb, var(--background) 96%, rgb(36 138 61));
+  --diffs-bg-addition-number-override: color-mix(in srgb, var(--background) 94%, rgb(36 138 61));
+  --diffs-bg-addition-hover-override: color-mix(in srgb, var(--background) 93%, rgb(36 138 61));
+  --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--background) 88%, rgb(36 138 61));
+  --diffs-bg-deletion-override: color-mix(in srgb, var(--background) 96%, rgb(207 34 46));
+  --diffs-bg-deletion-number-override: color-mix(in srgb, var(--background) 94%, rgb(207 34 46));
+  --diffs-bg-deletion-hover-override: color-mix(in srgb, var(--background) 93%, rgb(207 34 46));
+  --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--background) 88%, rgb(207 34 46));
   background-color: var(--diffs-bg) !important;
 }
 
@@ -889,7 +891,7 @@ function ReviewFileTree(props: {
               ) : (
                 <FolderClosedIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
               )}
-              <span className="min-w-0 truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
+              <span className="min-w-0 truncate font-mono text-xs font-semibold text-foreground/85 group-hover:text-foreground">
                 {node.name}
               </span>
               <span className="ml-auto shrink-0">
@@ -922,7 +924,7 @@ function ReviewFileTree(props: {
         >
           <span aria-hidden="true" className="size-4 shrink-0" />
           <FileIcon className="size-3.5 shrink-0 text-muted-foreground/75" />
-          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground group-hover:text-foreground">
+          <span className="min-w-0 truncate font-mono text-xs font-semibold text-foreground/90 group-hover:text-foreground">
             {node.name}
           </span>
           <span className="ml-auto shrink-0">

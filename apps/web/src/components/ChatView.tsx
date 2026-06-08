@@ -47,9 +47,9 @@ import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import {
   parseDiffRouteSearch,
+  type DiffRouteSearch,
   type ReviewRouteSource,
   stripDiffSearchParams,
-  stripReviewSearchParams,
 } from "../diffRouteSearch";
 import {
   collapseExpandedComposerCursor,
@@ -997,7 +997,7 @@ export default function ChatView(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const diffOpen = rawSearch.diff === "1";
-  const reviewOpen = isServerThread && rawSearch.view === "review";
+  const reviewOpen = rawSearch.view === "review";
   const activeThreadId = activeThread?.id ?? null;
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
@@ -1935,28 +1935,21 @@ export default function ChatView(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "review.toggle", nonTerminalShortcutLabelOptions),
     [keybindings, nonTerminalShortcutLabelOptions],
   );
-  const closeReviewMode = useCallback(() => {
-    if (!isServerThread) {
-      return;
-    }
-    void navigate({
-      to: "/$environmentId/$threadId",
-      params: {
-        environmentId,
-        threadId,
-      },
-      replace: true,
-      search: (previous) => stripReviewSearchParams(previous),
-    });
-  }, [environmentId, isServerThread, navigate, threadId]);
-  const onToggleReview = useCallback(
-    (open?: boolean) => {
-      const shouldOpen = typeof open === "boolean" ? open : !reviewOpen;
-      if (!isServerThread || (!isGitRepo && shouldOpen)) {
+  const navigateReviewSearch = useCallback(
+    (updateSearch: (previous: DiffRouteSearch) => DiffRouteSearch) => {
+      if (routeKind === "draft") {
+        if (!draftId) {
+          return;
+        }
+        void navigate({
+          to: "/draft/$draftId",
+          params: buildDraftThreadRouteParams(draftId),
+          replace: true,
+          search: updateSearch,
+        });
         return;
       }
-      if (!shouldOpen) {
-        closeReviewMode();
+      if (!isServerThread) {
         return;
       }
       void navigate({
@@ -1966,10 +1959,36 @@ export default function ChatView(props: ChatViewProps) {
           threadId,
         },
         replace: true,
-        search: (previous) => ({ ...previous, view: "review" }),
+        search: updateSearch,
       });
     },
-    [closeReviewMode, environmentId, isGitRepo, isServerThread, navigate, reviewOpen, threadId],
+    [draftId, environmentId, isServerThread, navigate, routeKind, threadId],
+  );
+  const closeReviewMode = useCallback(() => {
+    navigateReviewSearch((previous) => {
+      const {
+        view: _view,
+        reviewSource: _reviewSource,
+        reviewBaseRef: _reviewBaseRef,
+        reviewFilePath: _reviewFilePath,
+        ...rest
+      } = previous;
+      return rest;
+    });
+  }, [navigateReviewSearch]);
+  const onToggleReview = useCallback(
+    (open?: boolean) => {
+      const shouldOpen = typeof open === "boolean" ? open : !reviewOpen;
+      if ((!activeProject && shouldOpen) || (!isGitRepo && shouldOpen)) {
+        return;
+      }
+      if (!shouldOpen) {
+        closeReviewMode();
+        return;
+      }
+      navigateReviewSearch((previous) => ({ ...previous, view: "review" }));
+    },
+    [activeProject, closeReviewMode, isGitRepo, navigateReviewSearch, reviewOpen],
   );
   const onToggleDiff = useCallback(() => {
     if (!isServerThread) {
@@ -3911,48 +3930,26 @@ export default function ChatView(props: ChatViewProps) {
   );
   const onReviewSourceChange = useCallback(
     (source: ReviewRouteSource | undefined, _baseRef?: string | null) => {
-      if (!isServerThread) {
-        return;
-      }
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId,
-          threadId,
-        },
-        replace: true,
-        search: (previous) => ({
-          ...previous,
-          view: "review",
-          reviewSource: source,
-          reviewBaseRef: undefined,
-          reviewFilePath: undefined,
-        }),
-      });
+      navigateReviewSearch((previous) => ({
+        ...previous,
+        view: "review",
+        reviewSource: source,
+        reviewBaseRef: undefined,
+        reviewFilePath: undefined,
+      }));
     },
-    [environmentId, isServerThread, navigate, threadId],
+    [navigateReviewSearch],
   );
   const onReviewFilePathChange = useCallback(
     (filePath: string | undefined) => {
-      if (!isServerThread) {
-        return;
-      }
       const normalizedFilePath = filePath?.trim();
-      void navigate({
-        to: "/$environmentId/$threadId",
-        params: {
-          environmentId,
-          threadId,
-        },
-        replace: true,
-        search: (previous) => ({
-          ...previous,
-          view: "review",
-          reviewFilePath: normalizedFilePath ? normalizedFilePath : undefined,
-        }),
-      });
+      navigateReviewSearch((previous) => ({
+        ...previous,
+        view: "review",
+        reviewFilePath: normalizedFilePath ? normalizedFilePath : undefined,
+      }));
     },
-    [environmentId, isServerThread, navigate, threadId],
+    [navigateReviewSearch],
   );
   // Both the Map and the revert handler are read from refs at call-time so
   // the callback reference is fully stable and never busts context identity.
@@ -4030,7 +4027,7 @@ export default function ChatView(props: ChatViewProps) {
           terminalToggleShortcutLabel={terminalToggleShortcutLabel}
           diffToggleShortcutLabel={diffPanelShortcutLabel}
           reviewToggleShortcutLabel={reviewToggleShortcutLabel}
-          reviewAvailable={isServerThread}
+          reviewAvailable={activeProject !== undefined}
           gitCwd={gitCwd}
           diffOpen={diffOpen}
           reviewOpen={reviewOpen}
@@ -4071,8 +4068,8 @@ export default function ChatView(props: ChatViewProps) {
                 comments={reviewComments}
                 onSubmitComment={onSubmitReviewComment}
                 onResolveComment={onResolveReviewComment}
-                onRunReviewPrompt={onRunReviewPrompt}
-                isRunDisabled={isWorking || activeEnvironmentUnavailable}
+                onRunReviewPrompt={isServerThread ? onRunReviewPrompt : undefined}
+                isRunDisabled={!isServerThread || isWorking || activeEnvironmentUnavailable}
               />
               {branchToolbar}
             </>
